@@ -202,8 +202,25 @@ fn main() {
     println!("Supported: +, -, *, /, **, sqrt, pi, e, <>, c, a, \"key\" sto, \"key\" rcl.");
 
     loop {
-        // Display the current stack state
-        print!("Stack: {:?}\n> ", stack);
+        // Manually format the stack for a cleaner look.
+        let display_content: Vec<String> = stack
+            .iter()
+            .map(|item| {
+                match item {
+                    // Display numbers without the 'Number()' wrapper
+                    StackItem::Number(val) => format!("{}", val),
+                    // Display keys surrounded by their quotes
+                    StackItem::Key(key) => format!("\"{}\"", key),
+                }
+            })
+            .collect();
+
+        // Join the items and wrap in square brackets
+        let display_string = format!("[{}]", display_content.join(", "));
+
+        // Display the current stack state using the new display_string
+        print!("Stack: {}\n> ", display_string);
+
         io::stdout().flush().unwrap();
 
         // Read user input
