@@ -149,6 +149,7 @@ fn process_token(
 
         // Unary Operators
         "sqrt" => unary_calculate(stack, f64::sqrt),
+        "hex" | "bin" | "oct" => display_base(stack, token),
 
         // Constants
         "pi" => {
@@ -221,7 +222,9 @@ fn main() {
     let mut storage: HashMap<String, f64> = HashMap::new();
 
     println!("Welcome to kalk-rs (RPN Calculator). Type 'exit' to quit.");
-    println!("Supported: +, -, *, /, **, %%, %, sqrt, pi, e, <>, c, a, \"key\" sto, \"key\" rcl.");
+    println!(
+        "Supported: +, -, *, /, **, %%, %, sqrt, pi, e, <>, c, a, \"key\" sto, \"key\" rcl, hex, bin, oct."
+    );
 
     loop {
         // Manually format the stack for a cleaner look.
@@ -281,6 +284,33 @@ fn main() {
             }
         }
     }
+}
+
+/// Pops the last f64, casts it to i64, prints it in the given base,
+/// and pushes the original f64 back onto the stack.
+fn display_base(stack: &mut Vec<StackItem>, token: &str) -> Result<(), &'static str> {
+    // 1. Check stack and get number
+    let a = match stack.pop() {
+        Some(StackItem::Number(val)) => val,
+        _ => return Err("Base conversion requires one number on the stack"),
+    };
+
+    // 2. Cast to integer (truncates fractional part)
+    let int_val = a as i64;
+    let (prefix, base_str) = match token {
+        "hex" => ("0x", format!("{:X}", int_val)),
+        "oct" => ("0o", format!("{:o}", int_val)),
+        "bin" => ("0b", format!("{:b}", int_val)),
+        _ => return Err("Invalid base token"),
+    };
+
+    // 3. Print the result outside the stack
+    println!("\n{} Base: {}{}", token, prefix, base_str);
+
+    // 4. Push the original number back onto the stack
+    stack.push(StackItem::Number(a));
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -486,5 +516,30 @@ mod tests {
         stack.push(StackItem::Number(3.0));
         assert!(process_token(&mut stack, "%", &mut last_answer, &mut storage).is_ok());
         assert_eq!(get_number_at_top(&stack), 2.0);
+    }
+
+    #[test]
+    fn test_hex_display() {
+        let mut stack = Vec::new();
+        let mut storage = HashMap::new();
+        let mut last_answer = None;
+
+        // Push 255.99 (should truncate to 255)
+        stack.push(StackItem::Number(255.99));
+
+        // Stack state before 'hex': [255.99]
+
+        // Execute 'hex'. This will print "hex Base: 0xFF" and leave 255.99 on the stack.
+        assert!(process_token(&mut stack, "hex", &mut last_answer, &mut storage).is_ok());
+
+        // 1. Verify Stack Integrity: The original number should still be on the stack.
+        assert_eq!(stack.len(), 1);
+        assert_eq!(get_number_at_top(&stack), 255.99);
+
+        // 2. Test Logic with a negative number (-42.1) -> Hex conversion should be 0xFFFFFFFFFFFFFFD6
+        stack.push(StackItem::Number(-42.1));
+        assert!(process_token(&mut stack, "hex", &mut last_answer, &mut storage).is_ok());
+        // Stack should now contain: [255.99, -42.1]
+        assert_eq!(stack.len(), 2);
     }
 }
