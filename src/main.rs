@@ -143,6 +143,7 @@ fn process_token(
         "-" => calculate(stack, |a, b| a - b, "-"),
         "*" | "x" => calculate(stack, |a, b| a * b, "*"),
         "/" => calculate(stack, |a, b| a / b, "/"),
+        "%" => calculate(stack, |a, b| a.rem_euclid(b), "%"),
         "**" => calculate(stack, |a, b| a.powf(b), "**"),
         "%%" => calculate(stack, |a, b| (b - a) / a * 100.0, "%%"),
 
@@ -220,7 +221,7 @@ fn main() {
     let mut storage: HashMap<String, f64> = HashMap::new();
 
     println!("Welcome to kalk-rs (RPN Calculator). Type 'exit' to quit.");
-    println!("Supported: +, -, *, /, **, %%, sqrt, pi, e, <>, c, a, \"key\" sto, \"key\" rcl.");
+    println!("Supported: +, -, *, /, **, %%, %, sqrt, pi, e, <>, c, a, \"key\" sto, \"key\" rcl.");
 
     loop {
         // Manually format the stack for a cleaner look.
@@ -466,5 +467,24 @@ mod tests {
         stack.push(StackItem::Number(75.0));
         assert!(process_token(&mut stack, "%%", &mut last_answer, &mut storage).is_ok());
         assert_eq!(get_number_at_top(&stack), -25.0); // (75 - 100) / 100 * 100 = -25.0
+    }
+
+    #[test]
+    fn test_modulus() {
+        let mut stack = Vec::new();
+        let mut storage = HashMap::new();
+        let mut last_answer = None;
+
+        // 10 3 % = 1.0 (10 mod 3)
+        stack.push(StackItem::Number(10.0));
+        stack.push(StackItem::Number(3.0));
+        assert!(process_token(&mut stack, "%", &mut last_answer, &mut storage).is_ok());
+        assert_eq!(get_number_at_top(&stack), 1.0);
+
+        // -10 3 % = 2.0 (Euclidean remainder: -10 = 3*(-4) + 2)
+        stack.push(StackItem::Number(-10.0));
+        stack.push(StackItem::Number(3.0));
+        assert!(process_token(&mut stack, "%", &mut last_answer, &mut storage).is_ok());
+        assert_eq!(get_number_at_top(&stack), 2.0);
     }
 }
