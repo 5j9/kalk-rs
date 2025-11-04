@@ -11,9 +11,11 @@ enum StackItem {
     Key(String),
 }
 
-/// Helper to convert Persian digits to Arabic (ASCII) digits.
-fn persian_to_arabic(c: char) -> char {
+/// Helper to convert Persian (Eastern) and standard Arabic (Western) digits
+/// and separators to ASCII digits and standard separators.
+fn unicode_to_ascii(c: char) -> char {
     match c {
+        // 1. Persian (Extended Arabic-Indic) Digits: ۰ to ۹ (U+06F0 to U+06F9)
         '۰' => '0',
         '۱' => '1',
         '۲' => '2',
@@ -24,9 +26,24 @@ fn persian_to_arabic(c: char) -> char {
         '۷' => '7',
         '۸' => '8',
         '۹' => '9',
+
+        // 2. Standard Arabic (Arabic-Indic) Digits: ٠ to ٩ (U+0660 to U+0669)
+        '٠' => '0',
+        '١' => '1',
+        '٢' => '2',
+        '٣' => '3',
+        '٤' => '4',
+        '٥' => '5',
+        '٦' => '6',
+        '٧' => '7',
+        '٨' => '8',
+        '٩' => '9',
+
+        // 3. Persian/Arabic Separators
         '٫' => '.', // Arabic Decimal Separator -> ASCII Period
         '٬' => ',', // Arabic Thousands Separator -> ASCII Comma
-        _ => c,     // Leave all other characters (., -, +, etc.) unchanged
+
+        _ => c, // Leave all other characters unchanged
     }
 }
 
@@ -110,7 +127,7 @@ fn process_token(
     // First, convert Persian digits to Arabic and remove thousand separators (commas)
     let cleaned_token: String = token
         .chars()
-        .map(persian_to_arabic)
+        .map(unicode_to_ascii)
         .filter(|c| *c != ',')
         .collect();
 
@@ -411,5 +428,23 @@ mod tests {
             .trim();
 
         assert_eq!(cleaned_only_comment, "");
+    }
+
+    #[test]
+    fn test_standard_arabic_parsing() {
+        let mut stack = Vec::new();
+        let mut storage = HashMap::new();
+        let mut last_answer = None;
+        let arabic_pi = "٣٫١٤١٥٩٢٦٥٣٥٨";
+
+        assert!(process_token(&mut stack, arabic_pi, &mut last_answer, &mut storage).is_ok());
+        assert!((get_number_at_top(&stack) - 3.14159265358).abs() < 1e-10);
+
+        // Test with thousands separator
+        // Original token: "١٬٠٠٠٫٥" (1,000.5)
+        let arabic_thousand = "١٬٠٠٠٫٥";
+
+        assert!(process_token(&mut stack, arabic_thousand, &mut last_answer, &mut storage).is_ok());
+        assert_eq!(get_number_at_top(&stack), 1000.5);
     }
 }
