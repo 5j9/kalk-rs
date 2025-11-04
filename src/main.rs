@@ -4,6 +4,94 @@ use std::f64::consts;
 use std::io::{self, Write};
 use thousands::Separable;
 
+/// Type alias for a function that operates on one f64 and returns an f64.
+type UnaryHandler = fn(f64) -> f64;
+/// Type alias for a function that operates on two f64s and returns an f64.
+type BinaryHandler = fn(f64, f64) -> f64;
+
+// --- Helper Handler Definitions (for functions not available on f64::) ---
+
+fn rad_to_deg(rad: f64) -> f64 {
+    rad * 180.0 / consts::PI
+}
+fn deg_to_rad(deg: f64) -> f64 {
+    deg * consts::PI / 180.0
+}
+fn log_op(a: f64, b: f64) -> f64 {
+    a.log(b)
+}
+fn percent_change(a: f64, b: f64) -> f64 {
+    (b - a) / a * 100.0
+}
+fn power_op(a: f64, b: f64) -> f64 {
+    a.powf(b)
+}
+fn atan2_op(y: f64, x: f64) -> f64 {
+    y.atan2(x)
+} // RPN stack order requires Y X
+
+// --- Centralized Operator Data Structures ---
+
+/// Represents the execution logic for an operator.
+/// This allows the static map to hold heterogeneous handler types.
+enum OperatorAction {
+    PushConstant(f64),
+    Unary(UnaryHandler),
+    Binary(BinaryHandler),
+    /// For functions that require custom access to the stack, memory, or last answer.
+    Special(&'static str),
+}
+
+/// The centralized, static map containing ALL operator information:
+/// 1. Token (Key)
+/// 2. Help Group (&'static str)
+/// 3. Usage String (&'static str)
+/// 4. Execution Action (OperatorAction enum)
+const OPERATOR_DATA: Map<&'static str, (&'static str, &'static str, OperatorAction)> = phf_map! {
+    // Arithmetic (Binary)
+    "+" => ("Binary", "a b + | Addition (a + b)", OperatorAction::Binary(|a, b| a + b)),
+    "-" => ("Binary", "a b - | Subtraction (a - b)", OperatorAction::Binary(|a, b| a - b)),
+    "*" => ("Binary", "a b * | Multiplication (a * b)", OperatorAction::Binary(|a, b| a * b)),
+    "/" => ("Binary", "a b / | Division (a / b)", OperatorAction::Binary(|a, b| a / b)),
+    "**" => ("Binary", "a b ** | Power (a^b)", OperatorAction::Binary(power_op)),
+    "%" => ("Binary", "a b % | Euclidean Remainder (a mod b)", OperatorAction::Binary(f64::rem_euclid)),
+    "%%" => ("Binary", "a b %% | Percent Change ((b - a) / a * 100)", OperatorAction::Binary(percent_change)),
+    "log" => ("Binary", "a b log | Logarithm (log_b(a))", OperatorAction::Binary(log_op)),
+    "atan2" => ("Binary", "y x atan2 | Arc tangent of y/x (result in radians)", OperatorAction::Binary(atan2_op)),
+
+    // Constants
+    "pi" => ("Constant", "pi | Push the value of pi", OperatorAction::PushConstant(consts::PI)),
+    "e" => ("Constant", "e | Push the value of Euler's number (e)", OperatorAction::PushConstant(consts::E)),
+
+    // Unary/Trig/Rounding (Unary Handler)
+    "sqrt" => ("Unary", "a sqrt | Square root", OperatorAction::Unary(f64::sqrt)),
+    "sin" => ("Unary", "a sin | Sine (a in radians)", OperatorAction::Unary(f64::sin)),
+    "cos" => ("Unary", "a cos | Cosine (a in radians)", OperatorAction::Unary(f64::cos)),
+    "tan" => ("Unary", "a tan | Tangent (a in radians)", OperatorAction::Unary(f64::tan)),
+    "acos" => ("Unary", "a acos | Arc cosine (result in radians)", OperatorAction::Unary(f64::acos)),
+    "asin" => ("Unary", "a asin | Arc sine (result in radians)", OperatorAction::Unary(f64::asin)),
+    "atan" => ("Unary", "a atan | Arc tangent (result in radians)", OperatorAction::Unary(f64::atan)),
+    "exp" => ("Unary", "a exp | e raised to the power of a (e^a)", OperatorAction::Unary(f64::exp)),
+    "ceil" => ("Rounding", "a ceil | Ceiling (rounds up)", OperatorAction::Unary(f64::ceil)),
+    "floor" => ("Rounding", "a floor | Floor (rounds down)", OperatorAction::Unary(f64::floor)),
+    "deg" => ("Conversions", "a deg | Convert angle from radians to degrees", OperatorAction::Unary(rad_to_deg)),
+    "rad" => ("Conversions", "a rad | Convert angle from degrees to radians", OperatorAction::Unary(deg_to_rad)),
+
+    // Special/Custom Logic (Handled explicitly in process_token's Special match)
+    "!" => ("Combinatorics", "n ! | Factorial (n!)", OperatorAction::Special("factorial")),
+    "P" => ("Combinatorics", "n k P | Permutations P(n, k)", OperatorAction::Special("permutations")),
+    "C" => ("Combinatorics", "n k C | Combinations C(n, k)", OperatorAction::Special("combinations")),
+    "<>" => ("Stack", "a b <> | Swap the top two items", OperatorAction::Special("swap")),
+    "c" => ("Stack", "c | Clear the stack", OperatorAction::Special("clear")),
+    "a" => ("Stack", "a | Recall last successful answer", OperatorAction::Special("answer")),
+    "sto" => ("Memory", "value \"key\" sto | Store value to key", OperatorAction::Special("store")),
+    "rcl" => ("Memory", "\"key\" rcl | Recall value from key", OperatorAction::Special("recall")),
+    "hex" => ("Display", "a hex | Display a in hexadecimal (i64 cast)", OperatorAction::Special("display_base")),
+    "bin" => ("Display", "a bin | Display a in binary (i64 cast)", OperatorAction::Special("display_base")),
+    "oct" => ("Display", "a oct | Display a in octal (i64 cast)", OperatorAction::Special("display_base")),
+    "help" => ("Meta", "help [func] | List all functions or show usage for [func]", OperatorAction::Special("help")),
+};
+
 /// Represents an item that can be placed on the RPN stack.
 /// It can be a floating-point number or a string key for storage.
 #[derive(Debug, Clone)]
@@ -12,59 +100,7 @@ enum StackItem {
     Key(String),
 }
 
-const HELP_DATA: Map<&'static str, (&'static str, &'static str)> = phf_map! {
-    // Arithmetic
-    "+" => ("Binary", "a b + | Addition (a + b)"),
-    "-" => ("Binary", "a b - | Subtraction (a - b)"),
-    "*" => ("Binary", "a b * | Multiplication (a * b)"),
-    "/" => ("Binary", "a b / | Division (a / b)"),
-    "**" => ("Binary", "a b ** | Power (a^b)"),
-    "%" => ("Binary", "a b % | Euclidean Remainder (a mod b)"),
-    "%%" => ("Binary", "a b %% | Percent Change ((b - a) / a * 100)"),
-
-    // Constants
-    "pi" => ("Constant", "pi | Push the value of pi"),
-    "e" => ("Constant", "e | Push the value of Euler's number (e)"),
-
-    // Unary/Trig/Log
-    "sqrt" => ("Unary", "a sqrt | Square root"),
-    "sin" => ("Unary", "a sin | Sine (a is in radians)"),
-    "cos" => ("Unary", "a cos | Cosine (a is in radians)"),
-    "tan" => ("Unary", "a tan | Tangent (a is in radians)"),
-    "acos" => ("Unary", "a acos | Arc cosine (result in radians)"),
-    "asin" => ("Unary", "a asin | Arc sine (result in radians)"),
-    "atan" => ("Unary", "a atan | Arc tangent (result in radians)"),
-    "exp" => ("Unary", "a exp | e raised to the power of a (e^a)"),
-    "log" => ("Binary", "a b log | Logarithm (log_b(a))"),
-    "atan2" => ("Binary", "y x atan2 | Arc tangent of y/x (result in radians)"),
-
-    // Rounding & Conversions
-    "ceil" => ("Unary", "a ceil | Ceiling (rounds up)"),
-    "floor" => ("Unary", "a floor | Floor (rounds down)"),
-    "deg" => ("Unary", "a deg | Convert angle from radians to degrees"),
-    "rad" => ("Unary", "a rad | Convert angle from degrees to radians"),
-
-    // Combinatorics
-    "!" => ("Unary", "n ! | Factorial (n!)"),
-    "P" => ("Binary", "n k P | Permutations P(n, k)"),
-    "C" => ("Binary", "n k C | Combinations C(n, k)"),
-
-    // Stack & Memory
-    "<>" => ("Stack", "a b <> | Swap the top two items"),
-    "c" => ("Stack", "c | Clear the stack"),
-    "a" => ("Stack", "a | Recall last successful answer"),
-    "sto" => ("Memory", "value \"key\" sto | Store value to key"),
-    "rcl" => ("Memory", "\"key\" rcl | Recall value from key"),
-
-    // Display
-    "hex" => ("Display", "a hex | Display a in hexadecimal (i64 cast)"),
-    "bin" => ("Display", "a bin | Display a in binary (i64 cast)"),
-    "oct" => ("Display", "a oct | Display a in octal (i64 cast)"),
-    "help" => ("Meta", "help [func] | List all functions or show usage for [func]"),
-};
-
-/// Displays help for all functions or a specific function.
-/// The `token` is the argument passed to 'help' (the name of the function).
+/// Displays help for all functions or a specific function, reading from the centralized map.
 fn display_help(token: &str) -> Result<(), &'static str> {
     if token.is_empty() {
         // List all available functions, grouped by type
@@ -73,17 +109,18 @@ fn display_help(token: &str) -> Result<(), &'static str> {
         // Use a standard HashMap for runtime grouping
         let mut grouped_help: HashMap<&'static str, Vec<(&'static str, &'static str)>> =
             HashMap::new();
-        for (func, (group, usage)) in HELP_DATA.entries() {
+        // Iterate over the centralized map to extract help data only
+        for (func, (group, usage, _action)) in OPERATOR_DATA.entries() {
             grouped_help.entry(group).or_default().push((*func, *usage));
         }
 
         let groups = vec![
-            "Arithmetic",
-            "Constants",
+            "Binary", // Combined Arithmetic and Log/Atan2
             "Unary",
-            "Binary",
+            "Rounding",
+            "Conversions",
             "Combinatorics",
-            "Rounding & Conversions",
+            "Constants",
             "Stack",
             "Memory",
             "Display",
@@ -100,7 +137,7 @@ fn display_help(token: &str) -> Result<(), &'static str> {
         }
     } else {
         // Show help for a specific function
-        if let Some((group, usage)) = HELP_DATA.get(token) {
+        if let Some((group, usage, _action)) = OPERATOR_DATA.get(token) {
             println!("\n--- Help for '{}' ---", token);
             println!("  Type: {}", group);
             println!("  Usage: {}", usage);
@@ -239,18 +276,14 @@ fn combinations(stack: &mut Vec<StackItem>) -> Result<(), &'static str> {
         result = result * (n as f64 - i as f64) / (i as f64 + 1.0);
     }
 
-    // Note: If an overflow or underflow occurs in the division,
-    // it will be returned as Inf or 0.0, which is acceptable for f64.
-
     stack.push(StackItem::Number(result));
     Ok(())
 }
 
-/// Helper to convert Persian (Eastern) and standard Arabic (Western) digits
-/// and separators to ASCII digits and standard separators.
+/// Helper to convert various Unicode digits and separators to ASCII digits and standard separators.
 fn unicode_to_ascii(c: char) -> char {
     match c {
-        // 1. Persian (Extended Arabic-Indic) Digits: ۰ to ۹ (U+06F0 to U+06F9)
+        // Persian (Extended Arabic-Indic) Digits
         '۰' => '0',
         '۱' => '1',
         '۲' => '2',
@@ -262,7 +295,7 @@ fn unicode_to_ascii(c: char) -> char {
         '۸' => '8',
         '۹' => '9',
 
-        // 2. Standard Arabic (Arabic-Indic) Digits: ٠ to ٩ (U+0660 to U+0669)
+        // Standard Arabic (Arabic-Indic) Digits
         '٠' => '0',
         '١' => '1',
         '٢' => '2',
@@ -274,7 +307,7 @@ fn unicode_to_ascii(c: char) -> char {
         '٨' => '8',
         '٩' => '9',
 
-        // 3. Persian/Arabic Separators
+        // Persian/Arabic Separators
         '٫' => '.', // Arabic Decimal Separator -> ASCII Period
         '٬' => ',', // Arabic Thousands Separator -> ASCII Comma
 
@@ -285,14 +318,14 @@ fn unicode_to_ascii(c: char) -> char {
 /// Applies an operation to the top f64 value on the stack, modifying it in place.
 fn unary_calculate(
     stack: &mut Vec<StackItem>,
-    operation: impl Fn(f64) -> f64,
+    operation: UnaryHandler,
 ) -> Result<(), &'static str> {
     let val = match stack.last_mut() {
         Some(StackItem::Number(val)) => val,
         _ => return Err("Unary operator requires one number on the stack"),
     };
 
-    // Read the value (*val), perform the operation, and write back to the reference (*val)
+    // Read the value, perform the operation, and write back to the reference
     *val = operation(*val);
 
     Ok(())
@@ -300,10 +333,11 @@ fn unary_calculate(
 
 /// Binary function for two-operand operations (e.g., +, -, *, /).
 /// Pops two numbers (a and b), applies the function (a op b), and pushes the result.
-fn calculate<F>(stack: &mut Vec<StackItem>, op: F, _op_symbol: &str) -> Result<(), &'static str>
-where
-    F: Fn(f64, f64) -> f64,
-{
+fn calculate(
+    stack: &mut Vec<StackItem>,
+    op: BinaryHandler,
+    _op_symbol: &str,
+) -> Result<(), &'static str> {
     // RPN needs two operands: pop the second-to-last (b) and last (a)
     let b = match stack.pop() {
         Some(StackItem::Number(val)) => val,
@@ -316,6 +350,8 @@ where
     let a = match stack.pop() {
         Some(StackItem::Number(val)) => val,
         _ => {
+            // Push the second operand back before erroring
+            stack.push(StackItem::Number(b));
             return Err(
                 "Binary operation requires two numbers on the stack (missing first operand)",
             );
@@ -343,6 +379,60 @@ fn swap(stack: &mut Vec<StackItem>) -> Result<(), &'static str> {
     Ok(())
 }
 
+/// Calculates the factorial of n (n!).
+/// Returns an error if n is negative, non-integer, or too large.
+fn factorial(stack: &mut Vec<StackItem>) -> Result<(), &'static str> {
+    // 1. Pop the number
+    let val = match stack.pop() {
+        Some(StackItem::Number(val)) => val,
+        _ => return Err("Factorial '!' requires one number on the stack"),
+    };
+
+    // 2. Check for negative input
+    if val < 0.0 {
+        stack.push(StackItem::Number(val));
+        return Err("Factorial '!' requires a non-negative number.");
+    }
+
+    // 3. Check for large input (21! is already too large for f64)
+    if val > 20.0 {
+        stack.push(StackItem::Number(val));
+        return Err("Factorial '!' is too large; max supported value is 20.");
+    }
+
+    // 4. Round to the nearest integer and calculate
+    let n_int = val.round() as u64;
+    let result = (1..=n_int).map(|i| i as f64).product();
+
+    // 5. Push result
+    stack.push(StackItem::Number(result));
+    Ok(())
+}
+
+/// Reads the last f64, casts it to i64, prints it in the given base.
+/// The stack is NOT modified.
+fn display_base(stack: &mut Vec<StackItem>, token: &str) -> Result<(), &'static str> {
+    // 1. Check stack and get number (read-only access)
+    let a = match stack.last() {
+        Some(StackItem::Number(val)) => *val,
+        _ => return Err("Base conversion requires one number on the stack"),
+    };
+
+    // 2. Cast to integer (truncates fractional part)
+    let int_val = a as i64;
+    let (prefix, base_str) = match token {
+        "hex" => ("0x", format!("{:X}", int_val)),
+        "oct" => ("0o", format!("{:o}", int_val)),
+        "bin" => ("0b", format!("{:b}", int_val)),
+        _ => return Err("Invalid base token"),
+    };
+
+    // 3. Print the result outside the stack
+    println!("\n{} Base: {}{}", token, prefix, base_str);
+
+    Ok(())
+}
+
 /// The core function to process a single input token.
 fn process_token(
     stack: &mut Vec<StackItem>,
@@ -358,7 +448,6 @@ fn process_token(
     }
 
     // 2. Handle Numeric Input
-    // First, convert Persian digits to Arabic and remove thousand separators (commas)
     let cleaned_token: String = token
         .chars()
         .map(unicode_to_ascii)
@@ -370,162 +459,100 @@ fn process_token(
         return Ok(());
     }
 
-    // 3. Handle Commands and Operators
-    match token {
-        // Arithmetic Operators (Binary)
-        "+" => calculate(stack, |a, b| a + b, "+"),
-        "-" => calculate(stack, |a, b| a - b, "-"),
-        "*" | "x" => calculate(stack, |a, b| a * b, "*"),
-        "/" => calculate(stack, |a, b| a / b, "/"),
-        "%" => calculate(stack, |a, b| a.rem_euclid(b), "%"),
-        "**" => calculate(stack, |a, b| a.powf(b), "**"),
-        "%%" => calculate(stack, |a, b| (b - a) / a * 100.0, "%%"),
-
-        // Unary Operators
-        "sqrt" => unary_calculate(stack, f64::sqrt),
-        "sin" => unary_calculate(stack, f64::sin),
-        "cos" => unary_calculate(stack, f64::cos),
-        "tan" => unary_calculate(stack, f64::tan),
-
-        "acos" => unary_calculate(stack, f64::acos),
-        "asin" => unary_calculate(stack, f64::asin),
-        "atan" => unary_calculate(stack, f64::atan),
-        "atan2" => calculate(stack, |a, b| a.atan2(b), "atan2"),
-
-        "exp" => unary_calculate(stack, f64::exp),
-        "log" => calculate(stack, |a, b| a.log(b), "log"),
-
-        "hex" | "bin" | "oct" => display_base(stack, token),
-
-        // Constants
-        "pi" => {
-            stack.push(StackItem::Number(consts::PI));
-            Ok(())
-        }
-        "e" => {
-            stack.push(StackItem::Number(consts::E));
-            Ok(())
-        }
-
-        // Stack Manipulation
-        "<>" => swap(stack), // Swap
-        "c" => {
-            stack.clear();
-            Ok(())
-        } // Clear stack
-
-        // Last Answer (a)
-        "a" => {
-            if let Some(val) = *last_answer {
-                stack.push(StackItem::Number(val));
+    // 3. Handle Commands and Operators via Centralized Map Lookup
+    if let Some((_group, _usage, action)) = OPERATOR_DATA.get(token) {
+        match action {
+            OperatorAction::PushConstant(val) => {
+                stack.push(StackItem::Number(*val));
                 Ok(())
-            } else {
-                Err("No previous answer available ('a' is empty)")
             }
-        }
-
-        // Store (sto)
-        // Usage: <value> "key" sto
-        "sto" => {
-            // Key is the top item, Value is the second item
-            let key = match stack.pop() {
-                Some(StackItem::Key(k)) => k,
-                _ => return Err("STO requires a string key (e.g., \"rate\") as the last item"),
-            };
-            let val = match stack.pop() {
-                Some(StackItem::Number(v)) => v,
-                _ => return Err("STO requires a number value before the key"),
-            };
-
-            storage.insert(key, val);
-            Ok(())
-        }
-
-        // Recall (rcl)
-        // Usage: "key" rcl
-        "rcl" => {
-            // Key is the top item
-            let key = match stack.pop() {
-                Some(StackItem::Key(k)) => k,
-                _ => return Err("RCL requires a string key (e.g., \"rate\") as the last item"),
-            };
-
-            if let Some(&val) = storage.get(&key) {
-                stack.push(StackItem::Number(val));
-                Ok(())
-            } else {
-                Err("Storage key not found")
-            }
-        }
-
-        "C" => combinations(stack), // Combinations C(n, k)
-        "P" => permutations(stack), // Permutations P(n, k)
-        "!" => {
-            // Factorial n! (Custom error handling required)
-            // 1. Pop the number
-            let val = match stack.pop() {
-                Some(StackItem::Number(val)) => val,
-                _ => return Err("Factorial '!' requires one number on the stack"),
-            };
-
-            // 2. Calculate, handling potential error
-            match factorial(val) {
-                Ok(result) => {
-                    stack.push(StackItem::Number(result));
-                    Ok(())
-                }
-                Err(e) => {
-                    // Push the original value back on error for better user experience
-                    stack.push(StackItem::Number(val));
-                    Err(e)
-                }
-            }
-        }
-        "ceil" => unary_calculate(stack, f64::ceil), // Ceiling
-        "floor" => unary_calculate(stack, f64::floor), // Floor
-        "deg" => unary_calculate(stack, |x| x * 180.0 / consts::PI), // Radians to Degrees
-        "rad" => unary_calculate(stack, |x| x * consts::PI / 180.0), // Degrees to Radians
-
-        "help" => {
-            // 1. Try to pop the top stack item (the potential function name)
-            let target_item = stack.pop();
-
-            match target_item {
-                // Case 1: Stack item is a Key (e.g., "sin")
-                Some(StackItem::Key(key)) => {
-                    // Extract the actual function name (e.g., "sin" from StackItem::Key("sin"))
-                    let func_name = key.trim_matches('"').to_lowercase();
-
-                    // If the key is in our help data
-                    if HELP_DATA.contains_key(func_name.as_str()) {
-                        // Success: Display specific help and consume the key
-                        display_help(func_name.as_str())
-                    } else {
-                        // Fail: It was a Key, but not a function. Push it back, display full help.
-                        stack.push(StackItem::Key(key));
-                        display_help("")
+            OperatorAction::Unary(handler) => unary_calculate(stack, *handler),
+            OperatorAction::Binary(handler) => calculate(stack, *handler, token),
+            OperatorAction::Special(name) => {
+                // Execute special commands which need custom state access
+                match *name {
+                    "factorial" => factorial(stack),
+                    "permutations" => permutations(stack),
+                    "combinations" => combinations(stack),
+                    "swap" => swap(stack),
+                    "clear" => {
+                        stack.clear();
+                        Ok(())
                     }
-                }
-                // Case 2: Stack item is a Number (e.g., 5.0)
-                Some(StackItem::Number(val)) => {
-                    // Not a function name. Push it back, display full help.
-                    stack.push(StackItem::Number(val));
-                    display_help("")
-                }
-                // Case 3: Stack is empty
-                None => {
-                    // Display full help
-                    display_help("")
+                    "answer" => {
+                        if let Some(val) = *last_answer {
+                            stack.push(StackItem::Number(val));
+                            Ok(())
+                        } else {
+                            Err("No previous answer available ('a' is empty)")
+                        }
+                    }
+                    // Store (sto)
+                    "store" => {
+                        let key = match stack.pop() {
+                            Some(StackItem::Key(k)) => k,
+                            _ => {
+                                return Err(
+                                    "STO requires a string key (e.g., \"rate\") as the last item",
+                                );
+                            }
+                        };
+                        let val = match stack.pop() {
+                            Some(StackItem::Number(v)) => v,
+                            _ => return Err("STO requires a number value before the key"),
+                        };
+                        storage.insert(key, val);
+                        Ok(())
+                    }
+                    // Recall (rcl)
+                    "recall" => {
+                        let key = match stack.pop() {
+                            Some(StackItem::Key(k)) => k,
+                            _ => {
+                                return Err(
+                                    "RCL requires a string key (e.g., \"rate\") as the last item",
+                                );
+                            }
+                        };
+                        if let Some(&val) = storage.get(&key) {
+                            stack.push(StackItem::Number(val));
+                            Ok(())
+                        } else {
+                            Err("Storage key not found")
+                        }
+                    }
+                    "display_base" => display_base(stack, token),
+                    "help" => {
+                        // Custom RPN help logic
+                        let target_item = stack.pop();
+                        match target_item {
+                            Some(StackItem::Key(key)) => {
+                                let func_name = key.trim_matches('"').to_lowercase();
+                                if OPERATOR_DATA.contains_key(func_name.as_str()) {
+                                    display_help(func_name.as_str())
+                                } else {
+                                    stack.push(StackItem::Key(key));
+                                    display_help("")
+                                }
+                            }
+                            Some(StackItem::Number(val)) => {
+                                stack.push(StackItem::Number(val));
+                                display_help("")
+                            }
+                            None => display_help(""),
+                        }
+                    }
+                    _ => Err("Internal operator error (Special command missing handler)"),
                 }
             }
         }
-
-        _ => Err("Unrecognized token or operator"),
+    } else {
+        Err("Unrecognized token or operator")
     }
 }
 
 fn main() {
-    let mut stack: Vec<StackItem> = Vec::new(); // Refactored to Vec<StackItem>
+    let mut stack: Vec<StackItem> = Vec::new();
     let mut last_answer: Option<f64> = None;
     let mut storage: HashMap<String, f64> = HashMap::new();
 
@@ -586,52 +613,6 @@ fn main() {
             }
         }
     }
-}
-
-/// Calculates the factorial of n (n!).
-/// Returns an error if n is negative, non-integer, or too large (over 20, as 21! > f64::MAX).
-fn factorial(n: f64) -> Result<f64, &'static str> {
-    // 1. Check for negative input
-    if n < 0.0 {
-        return Err("Factorial '!' requires a non-negative number.");
-    }
-
-    // 2. Check for large input (21! is already too large for f64)
-    if n > 20.0 {
-        return Err("Factorial '!' is too large; max supported value is 20.");
-    }
-
-    // 3. Round to the nearest integer
-    let n_int = n.round() as u64;
-
-    // Calculate factorial iteratively
-    let result = (1..=n_int).map(|i| i as f64).product();
-
-    Ok(result)
-}
-
-/// Reads the last f64, casts it to i64, prints it in the given base.
-/// The stack is NOT modified.
-fn display_base(stack: &mut Vec<StackItem>, token: &str) -> Result<(), &'static str> {
-    // 1. Check stack and get number (read-only access)
-    let a = match stack.last() {
-        Some(StackItem::Number(val)) => *val,
-        _ => return Err("Base conversion requires one number on the stack"),
-    };
-
-    // 2. Cast to integer (truncates fractional part)
-    let int_val = a as i64;
-    let (prefix, base_str) = match token {
-        "hex" => ("0x", format!("{:X}", int_val)),
-        "oct" => ("0o", format!("{:o}", int_val)),
-        "bin" => ("0b", format!("{:b}", int_val)),
-        _ => return Err("Invalid base token"),
-    };
-
-    // 3. Print the result outside the stack
-    println!("\n{} Base: {}{}", token, prefix, base_str);
-
-    Ok(())
 }
 
 #[cfg(test)]
