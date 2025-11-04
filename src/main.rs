@@ -144,6 +144,7 @@ fn process_token(
         "*" | "x" => calculate(stack, |a, b| a * b, "*"),
         "/" => calculate(stack, |a, b| a / b, "/"),
         "**" => calculate(stack, |a, b| a.powf(b), "**"),
+        "%%" => calculate(stack, |a, b| (b - a) / a * 100.0, "%%"),
 
         // Unary Operators
         "sqrt" => unary_calculate(stack, f64::sqrt),
@@ -219,7 +220,7 @@ fn main() {
     let mut storage: HashMap<String, f64> = HashMap::new();
 
     println!("Welcome to kalk-rs (RPN Calculator). Type 'exit' to quit.");
-    println!("Supported: +, -, *, /, **, sqrt, pi, e, <>, c, a, \"key\" sto, \"key\" rcl.");
+    println!("Supported: +, -, *, /, **, %%, sqrt, pi, e, <>, c, a, \"key\" sto, \"key\" rcl.");
 
     loop {
         // Manually format the stack for a cleaner look.
@@ -446,5 +447,24 @@ mod tests {
 
         assert!(process_token(&mut stack, arabic_thousand, &mut last_answer, &mut storage).is_ok());
         assert_eq!(get_number_at_top(&stack), 1000.5);
+    }
+
+    #[test]
+    fn test_percent_change() {
+        let mut stack = Vec::new();
+        let mut storage = HashMap::new();
+        let mut last_answer = None;
+
+        // 25 50 %% = 100.0% increase
+        stack.push(StackItem::Number(25.0));
+        stack.push(StackItem::Number(50.0));
+        assert!(process_token(&mut stack, "%%", &mut last_answer, &mut storage).is_ok());
+        assert_eq!(get_number_at_top(&stack), 100.0); // (50 - 25) / 25 * 100 = 100.0
+
+        // 100 75 %% = -25.0% decrease
+        stack.push(StackItem::Number(100.0));
+        stack.push(StackItem::Number(75.0));
+        assert!(process_token(&mut stack, "%%", &mut last_answer, &mut storage).is_ok());
+        assert_eq!(get_number_at_top(&stack), -25.0); // (75 - 100) / 100 * 100 = -25.0
     }
 }
