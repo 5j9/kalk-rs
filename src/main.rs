@@ -24,7 +24,9 @@ fn persian_to_arabic(c: char) -> char {
         '۷' => '7',
         '۸' => '8',
         '۹' => '9',
-        _ => c, // Leave all other characters (., -, +, etc.) unchanged
+        '٫' => '.', // Arabic Decimal Separator -> ASCII Period
+        '٬' => ',', // Arabic Thousands Separator -> ASCII Comma
+        _ => c,     // Leave all other characters (., -, +, etc.) unchanged
     }
 }
 
