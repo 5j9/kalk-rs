@@ -11,31 +11,59 @@ enum StackItem {
     Key(String),
 }
 
-/// Calculates the factorial of n (n!).
-/// Panics if n is negative. Casts f64 to u64 for calculation.
-fn factorial(n: f64) -> f64 {
-    // We treat the input as a non-negative integer for factorial calculation.
-    let n_int = n.round() as u64; // Round to nearest integer and cast
-
-    // Calculate factorial iteratively to avoid deep recursion
-    (1..=n_int).map(|i| i as f64).product()
-}
-
 /// Calculates permutations P(n, k) = n! / (n - k)!.
 /// Pops two numbers (k, n), calculates P(n, k), and pushes the result.
 fn permutations(stack: &mut Vec<StackItem>) -> Result<(), &'static str> {
-    // RPN needs two operands: pop k (second-to-last) and n (last)
-    let k = match stack.pop() {
-        Some(StackItem::Number(val)) => val.round() as i64,
-        _ => return Err("P(n, k) requires two numbers (n, k) on the stack"),
-    };
-    let n = match stack.pop() {
-        Some(StackItem::Number(val)) => val.round() as i64,
-        _ => return Err("P(n, k) requires two numbers (n, k) on the stack"),
+    // RPN: requires n then k, so pop k first, then n.
+    // Use an error handler helper to avoid repeating pop/push logic on failure
+    let handle_error = |stack: &mut Vec<StackItem>, n_val, k_val, err| {
+        // Push back in reverse order (k then n) since they are currently popped
+        stack.push(StackItem::Number(n_val));
+        stack.push(StackItem::Number(k_val));
+        Err(err)
     };
 
-    if n < 0 || k < 0 || k > n {
-        return Err("P(n, k) requires non-negative integers where n >= k");
+    let k_val = match stack.pop() {
+        Some(StackItem::Number(val)) => val,
+        _ => return Err("P(n, k) requires two numbers (n, k) on the stack (missing k)"),
+    };
+    let n_val = match stack.pop() {
+        Some(StackItem::Number(val)) => val,
+        _ => {
+            return handle_error(
+                stack,
+                0.0,
+                k_val,
+                "P(n, k) requires two numbers (n, k) on the stack (missing n)",
+            );
+        }
+    };
+
+    // Check bounds and non-negativity
+    if n_val < 0.0 || k_val < 0.0 {
+        return handle_error(stack, n_val, k_val, "P(n, k) requires non-negative inputs.");
+    }
+
+    let n = n_val.round() as i64;
+    let k = k_val.round() as i64;
+
+    if k > n {
+        return handle_error(
+            stack,
+            n_val,
+            k_val,
+            "P(n, k): n must be greater than or equal to k.",
+        );
+    }
+
+    // Check for large input to avoid overflow in intermediate calculation (max 20!)
+    if n > 20 || k > 20 {
+        return handle_error(
+            stack,
+            n_val,
+            k_val,
+            "P(n, k): Inputs too large; max n is 20.",
+        );
     }
 
     // P(n, k) = n * (n-1) * ... * (n-k+1)
@@ -48,35 +76,72 @@ fn permutations(stack: &mut Vec<StackItem>) -> Result<(), &'static str> {
 /// Calculates combinations C(n, k) = n! / (k! * (n - k)!).
 /// Pops two numbers (k, n), calculates C(n, k), and pushes the result.
 fn combinations(stack: &mut Vec<StackItem>) -> Result<(), &'static str> {
-    // RPN needs two operands: pop k (second-to-last) and n (last)
-    let k = match stack.pop() {
-        Some(StackItem::Number(val)) => val.round() as i64,
-        _ => return Err("C(n, k) requires two numbers (n, k) on the stack"),
-    };
-    let n = match stack.pop() {
-        Some(StackItem::Number(val)) => val.round() as i64,
-        _ => return Err("C(n, k) requires two numbers (n, k) on the stack"),
+    // RPN: requires n then k, so pop k first, then n.
+    let handle_error = |stack: &mut Vec<StackItem>, n_val, k_val, err| {
+        // Push back in reverse order (k then n) since they are currently popped
+        stack.push(StackItem::Number(n_val));
+        stack.push(StackItem::Number(k_val));
+        Err(err)
     };
 
-    if n < 0 || k < 0 || k > n {
-        return Err("C(n, k) requires non-negative integers where n >= k");
+    let k_val = match stack.pop() {
+        Some(StackItem::Number(val)) => val,
+        _ => return Err("C(n, k) requires two numbers (n, k) on the stack (missing k)"),
+    };
+    let n_val = match stack.pop() {
+        Some(StackItem::Number(val)) => val,
+        _ => {
+            return handle_error(
+                stack,
+                0.0,
+                k_val,
+                "C(n, k) requires two numbers (n, k) on the stack (missing n)",
+            );
+        }
+    };
+
+    // Check bounds and non-negativity
+    if n_val < 0.0 || k_val < 0.0 {
+        return handle_error(stack, n_val, k_val, "C(n, k) requires non-negative inputs.");
     }
 
-    // C(n, k) = P(n, k) / k! -> use the formula C(n, k) = C(n, n-k) to minimize terms
-    // The implementation below uses the definition:
-    // C(n, k) = (n * (n-1) * ... * (n-k+1)) / k!
+    let n = n_val.round() as i64;
+    let k = k_val.round() as i64;
 
-    // Handle C(n, k) = C(n, n-k) for smaller k
+    if k > n {
+        return handle_error(
+            stack,
+            n_val,
+            k_val,
+            "C(n, k): n must be greater than or equal to k.",
+        );
+    }
+
+    // Check for large input (C(n, k) can exceed f64, e.g., C(67, 33))
+    // A safe upper limit for n, considering the final f64 result is ~10^308
+    if n > 170 {
+        return handle_error(
+            stack,
+            n_val,
+            k_val,
+            "C(n, k): n is too large (> 170) for f64 result.",
+        );
+    }
+
+    // Optimization: C(n, k) = C(n, n-k)
     let k_eff = std::cmp::min(k, n - k);
 
-    let numerator: f64 = (n - k_eff + 1..=n).map(|i| i as f64).product();
-    let denominator = factorial(k_eff as f64);
-
-    if denominator == 0.0 {
-        return Err("Division by zero in combinations calculation");
+    // C(n, k) = (n * (n-1) * ... * (n-k+1)) / k!
+    let mut result = 1.0;
+    for i in 0..k_eff {
+        // Multiplies by (n-i) and divides by (i+1) in the same loop for better precision
+        result = result * (n as f64 - i as f64) / (i as f64 + 1.0);
     }
 
-    stack.push(StackItem::Number(numerator / denominator));
+    // Note: If an overflow or underflow occurs in the division,
+    // it will be returned as Inf or 0.0, which is acceptable for f64.
+
+    stack.push(StackItem::Number(result));
     Ok(())
 }
 
@@ -303,7 +368,7 @@ fn process_token(
             };
 
             // 2. Calculate, handling potential error
-            match calculate_factorial(val) {
+            match factorial(val) {
                 Ok(result) => {
                     stack.push(StackItem::Number(result));
                     Ok(())
@@ -396,7 +461,7 @@ fn main() {
 
 /// Calculates the factorial of n (n!).
 /// Returns an error if n is negative, non-integer, or too large (over 20, as 21! > f64::MAX).
-fn calculate_factorial(n: f64) -> Result<f64, &'static str> {
+fn factorial(n: f64) -> Result<f64, &'static str> {
     // 1. Check for negative input
     if n < 0.0 {
         return Err("Factorial '!' requires a non-negative number.");
@@ -835,17 +900,31 @@ mod tests {
         let mut storage = HashMap::new();
         let mut last_answer = None;
 
-        // 5 3 P = P(5, 3) = 60.0 (5*4*3)
+        // 5 3 P = P(5, 3) = 60.0 (n=5, k=3)
         stack.push(StackItem::Number(5.0));
         stack.push(StackItem::Number(3.0));
         assert!(process_token(&mut stack, "P", &mut last_answer, &mut storage).is_ok());
         assert_eq!(get_number_at_top(&stack), 60.0);
+        stack.clear();
 
-        // 4 4 P = P(4, 4) = 24.0 (4!)
-        stack.push(StackItem::Number(4.0));
-        stack.push(StackItem::Number(4.0));
-        assert!(process_token(&mut stack, "P", &mut last_answer, &mut storage).is_ok());
-        assert_eq!(get_number_at_top(&stack), 24.0);
+        // --- Error Tests ---
+
+        // 3 5 P (Error: n < k)
+        stack.push(StackItem::Number(3.0));
+        stack.push(StackItem::Number(5.0));
+        assert!(process_token(&mut stack, "P", &mut last_answer, &mut storage).is_err());
+        // Stack should contain the original [3.0, 5.0]
+        assert_eq!(stack.len(), 2);
+        assert_eq!(get_number_at_top(&stack), 5.0); // k is on top
+        stack.clear();
+
+        // -5 3 P (Error: n < 0)
+        stack.push(StackItem::Number(-5.0));
+        stack.push(StackItem::Number(3.0));
+        assert!(process_token(&mut stack, "P", &mut last_answer, &mut storage).is_err());
+        // Stack should contain the original [-5.0, 3.0]
+        assert_eq!(stack.len(), 2);
+        assert_eq!(get_number_at_top(&stack), 3.0);
     }
 
     #[test]
@@ -854,17 +933,22 @@ mod tests {
         let mut storage = HashMap::new();
         let mut last_answer = None;
 
-        // 5 3 C = C(5, 3) = 10.0 (5*4*3 / 3*2*1)
+        // 5 3 C = C(5, 3) = 10.0 (n=5, k=3)
         stack.push(StackItem::Number(5.0));
         stack.push(StackItem::Number(3.0));
         assert!(process_token(&mut stack, "C", &mut last_answer, &mut storage).is_ok());
         assert_eq!(get_number_at_top(&stack), 10.0);
+        stack.clear();
 
-        // 4 2 C = C(4, 2) = 6.0 (4*3 / 2*1)
-        stack.push(StackItem::Number(4.0));
-        stack.push(StackItem::Number(2.0));
-        assert!(process_token(&mut stack, "C", &mut last_answer, &mut storage).is_ok());
-        assert_eq!(get_number_at_top(&stack), 6.0);
+        // --- Error Tests ---
+
+        // 3 5 C (Error: n < k)
+        stack.push(StackItem::Number(3.0));
+        stack.push(StackItem::Number(5.0));
+        assert!(process_token(&mut stack, "C", &mut last_answer, &mut storage).is_err());
+        // Stack should contain the original [3.0, 5.0]
+        assert_eq!(stack.len(), 2);
+        assert_eq!(get_number_at_top(&stack), 5.0); // k is on top
     }
 
     #[test]
