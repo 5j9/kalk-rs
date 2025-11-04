@@ -1,8 +1,11 @@
+use std::collections::HashMap;
 use std::io::{self, Write};
 
 fn main() {
     // 1. The RPN stack to hold floating-point numbers
     let mut stack: Vec<f64> = Vec::new();
+    let mut last_answer: Option<f64> = None; // 1. Last Answer (a)
+    let mut storage: HashMap<String, f64> = HashMap::new(); // 2. Storage (sto/rcl)
 
     println!("Welcome to kalk-rs (RPN Calculator). Type 'exit' to quit.");
 
@@ -26,18 +29,32 @@ fn main() {
 
         // Split input into tokens (numbers and operators)
         for token in input.split_whitespace() {
-            if let Err(e) = process_token(&mut stack, token) {
+            // Pass all mutable state to the new processing function
+            if let Err(e) = process_token(
+                &mut stack,
+                token,
+                &mut last_answer, // Pass mutable reference
+                &mut storage,     // Pass mutable reference
+            ) {
                 eprintln!("Error: {}", e);
-                // Clear stack or handle error as needed
                 stack.clear();
                 break;
+            }
+
+            if let Some(&result) = stack.last() {
+                last_answer = Some(result);
             }
         }
     }
 }
 
-// Add this function right below the main function in src/main.rs
-fn process_token(stack: &mut Vec<f64>, token: &str) -> Result<(), &'static str> {
+fn process_token(
+    stack: &mut Vec<f64>,
+    token: &str,
+    last_answer: &mut Option<f64>,
+    storage: &mut HashMap<String, f64>,
+) -> Result<(), &'static str> {
+    // ... (Your existing number parsing logic) ...
     // 1. Convert Persian digits to Arabic and remove commas
     let cleaned_token: String = token
         .chars()
@@ -72,6 +89,36 @@ fn process_token(stack: &mut Vec<f64>, token: &str) -> Result<(), &'static str> 
         }
         "**" => calculate(stack, |a, b| a.powf(b), "**"),
         "sqrt" => unary_calculate(stack, f64::sqrt),
+        "a" => {
+            if let Some(val) = *last_answer {
+                stack.push(val);
+                Ok(())
+            } else {
+                Err("No previous answer available")
+            }
+        }
+        // Usage: <value> <key> sto (e.g., 50 "rate" sto)
+        "sto" => {
+            let key = stack.pop().ok_or("Missing storage key")?;
+            let val = stack.pop().ok_or("Missing value to store")?;
+
+            // Convert the key (which is currently a number) to a String for the HashMap
+            // A more robust implementation would check if the popped value is actually a string.
+            // For simplicity here, we'll use its string representation.
+            storage.insert(key.to_string(), val);
+            Ok(())
+        }
+        // Usage: <key> rcl (e.g., "rate" rcl)
+        "rcl" => {
+            let key = stack.pop().ok_or("Missing key to recall")?;
+            // Use the string representation of the key
+            if let Some(&val) = storage.get(&key.to_string()) {
+                stack.push(val);
+                Ok(())
+            } else {
+                Err("Storage key not found")
+            }
+        }
         _ => Err("Unrecognized token or operator"),
     }
 }
