@@ -1,3 +1,4 @@
+use phf::{Map, phf_map};
 use std::collections::HashMap;
 use std::f64::consts;
 use std::io::{self, Write};
@@ -9,6 +10,106 @@ use thousands::Separable;
 enum StackItem {
     Number(f64),
     Key(String),
+}
+
+const HELP_DATA: Map<&'static str, (&'static str, &'static str)> = phf_map! {
+    // Arithmetic
+    "+" => ("Binary", "a b + | Addition (a + b)"),
+    "-" => ("Binary", "a b - | Subtraction (a - b)"),
+    "*" => ("Binary", "a b * | Multiplication (a * b)"),
+    "/" => ("Binary", "a b / | Division (a / b)"),
+    "**" => ("Binary", "a b ** | Power (a^b)"),
+    "%" => ("Binary", "a b % | Euclidean Remainder (a mod b)"),
+    "%%" => ("Binary", "a b %% | Percent Change ((b - a) / a * 100)"),
+
+    // Constants
+    "pi" => ("Constant", "pi | Push the value of pi"),
+    "e" => ("Constant", "e | Push the value of Euler's number (e)"),
+
+    // Unary/Trig/Log
+    "sqrt" => ("Unary", "a sqrt | Square root"),
+    "sin" => ("Unary", "a sin | Sine (a is in radians)"),
+    "cos" => ("Unary", "a cos | Cosine (a is in radians)"),
+    "tan" => ("Unary", "a tan | Tangent (a is in radians)"),
+    "acos" => ("Unary", "a acos | Arc cosine (result in radians)"),
+    "asin" => ("Unary", "a asin | Arc sine (result in radians)"),
+    "atan" => ("Unary", "a atan | Arc tangent (result in radians)"),
+    "exp" => ("Unary", "a exp | e raised to the power of a (e^a)"),
+    "log" => ("Binary", "a b log | Logarithm (log_b(a))"),
+    "atan2" => ("Binary", "y x atan2 | Arc tangent of y/x (result in radians)"),
+
+    // Rounding & Conversions
+    "ceil" => ("Unary", "a ceil | Ceiling (rounds up)"),
+    "floor" => ("Unary", "a floor | Floor (rounds down)"),
+    "deg" => ("Unary", "a deg | Convert angle from radians to degrees"),
+    "rad" => ("Unary", "a rad | Convert angle from degrees to radians"),
+
+    // Combinatorics
+    "!" => ("Unary", "n ! | Factorial (n!)"),
+    "P" => ("Binary", "n k P | Permutations P(n, k)"),
+    "C" => ("Binary", "n k C | Combinations C(n, k)"),
+
+    // Stack & Memory
+    "<>" => ("Stack", "a b <> | Swap the top two items"),
+    "c" => ("Stack", "c | Clear the stack"),
+    "a" => ("Stack", "a | Recall last successful answer"),
+    "sto" => ("Memory", "value \"key\" sto | Store value to key"),
+    "rcl" => ("Memory", "\"key\" rcl | Recall value from key"),
+
+    // Display
+    "hex" => ("Display", "a hex | Display a in hexadecimal (i64 cast)"),
+    "bin" => ("Display", "a bin | Display a in binary (i64 cast)"),
+    "oct" => ("Display", "a oct | Display a in octal (i64 cast)"),
+    "help" => ("Meta", "help [func] | List all functions or show usage for [func]"),
+};
+
+/// Displays help for all functions or a specific function.
+/// The `token` is the argument passed to 'help' (the name of the function).
+fn display_help(token: &str) -> Result<(), &'static str> {
+    if token.is_empty() {
+        // List all available functions, grouped by type
+        println!("\n--- Available Functions ---");
+
+        // Use a standard HashMap for runtime grouping
+        let mut grouped_help: HashMap<&'static str, Vec<(&'static str, &'static str)>> =
+            HashMap::new();
+        for (func, (group, usage)) in HELP_DATA.entries() {
+            grouped_help.entry(group).or_default().push((*func, *usage));
+        }
+
+        let groups = vec![
+            "Arithmetic",
+            "Constants",
+            "Unary",
+            "Binary",
+            "Combinatorics",
+            "Rounding & Conversions",
+            "Stack",
+            "Memory",
+            "Display",
+            "Meta",
+        ];
+
+        for group in groups {
+            if let Some(items) = grouped_help.get(group) {
+                println!("\n  ✨ {}:", group);
+                for (func, usage) in items {
+                    println!("    - {:<5} | {}", func, usage);
+                }
+            }
+        }
+    } else {
+        // Show help for a specific function
+        if let Some((group, usage)) = HELP_DATA.get(token) {
+            println!("\n--- Help for '{}' ---", token);
+            println!("  Type: {}", group);
+            println!("  Usage: {}", usage);
+        } else {
+            return Err("Function not found. Type 'help' for a full list.");
+        }
+    }
+
+    Ok(())
 }
 
 /// Calculates permutations P(n, k) = n! / (n - k)!.
@@ -385,6 +486,40 @@ fn process_token(
         "deg" => unary_calculate(stack, |x| x * 180.0 / consts::PI), // Radians to Degrees
         "rad" => unary_calculate(stack, |x| x * consts::PI / 180.0), // Degrees to Radians
 
+        "help" => {
+            // 1. Try to pop the top stack item (the potential function name)
+            let target_item = stack.pop();
+
+            match target_item {
+                // Case 1: Stack item is a Key (e.g., "sin")
+                Some(StackItem::Key(key)) => {
+                    // Extract the actual function name (e.g., "sin" from StackItem::Key("sin"))
+                    let func_name = key.trim_matches('"').to_lowercase();
+
+                    // If the key is in our help data
+                    if HELP_DATA.contains_key(func_name.as_str()) {
+                        // Success: Display specific help and consume the key
+                        display_help(func_name.as_str())
+                    } else {
+                        // Fail: It was a Key, but not a function. Push it back, display full help.
+                        stack.push(StackItem::Key(key));
+                        display_help("")
+                    }
+                }
+                // Case 2: Stack item is a Number (e.g., 5.0)
+                Some(StackItem::Number(val)) => {
+                    // Not a function name. Push it back, display full help.
+                    stack.push(StackItem::Number(val));
+                    display_help("")
+                }
+                // Case 3: Stack is empty
+                None => {
+                    // Display full help
+                    display_help("")
+                }
+            }
+        }
+
         _ => Err("Unrecognized token or operator"),
     }
 }
@@ -395,9 +530,7 @@ fn main() {
     let mut storage: HashMap<String, f64> = HashMap::new();
 
     println!("Welcome to kalk-rs (RPN Calculator). Type 'exit' to quit.");
-    println!(
-        "Supported: +, -, *, /, **, %%, %, sqrt, ceil, floor, sin, cos, tan, acos, asin, atan, atan2, exp, log, pi, e, <>, c, a, \"key\" sto, \"key\" rcl, hex, bin, oct, !, P, C, deg, rad."
-    );
+    println!("Type 'help' for a list of all functions or '\"func\" help' for specific usage.");
 
     loop {
         // Manually format the stack for a cleaner look.
@@ -438,9 +571,6 @@ fn main() {
         let mut tokens = input.split_whitespace();
         let mut success = true;
 
-        // Note: For string keys, tokens like "rate" need to be handled carefully
-        // if they are part of a multi-token input line.
-        // This simple split works if keys are separate, e.g., 10 "rate" sto
         while let Some(token) = tokens.next() {
             if let Err(e) = process_token(&mut stack, token, &mut last_answer, &mut storage) {
                 eprintln!("Error: {}", e);
@@ -449,7 +579,6 @@ fn main() {
                 break;
             }
         }
-
         // Update Last Answer ONLY if the input line processed successfully
         if success {
             if let Some(StackItem::Number(result)) = stack.last() {
