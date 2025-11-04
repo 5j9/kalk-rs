@@ -79,57 +79,8 @@ const OPERATOR_DATA: Map<&'static str, (&'static str, &'static str, OperatorActi
     "hex" => ("Display", "a hex | Display a in hexadecimal (i64 cast)", OperatorAction::Special("display_base")),
     "bin" => ("Display", "a bin | Display a in binary (i64 cast)", OperatorAction::Special("display_base")),
     "oct" => ("Display", "a oct | Display a in octal (i64 cast)", OperatorAction::Special("display_base")),
-    "help" => ("Meta", "help [func] | List all functions or show usage for [func]", OperatorAction::Special("help")),
+    "help" => ("Meta", "\"func_name\" help | List all functions or show usage for [func_name]", OperatorAction::Special("help")),
 };
-
-/// Displays help for all functions or a specific function, reading from the centralized map.
-fn display_help(token: &str) -> Result<(), &'static str> {
-    if token.is_empty() {
-        // List all available functions, grouped by type
-        println!("\n--- Available Functions ---");
-
-        // Use a standard HashMap for runtime grouping
-        let mut grouped_help: HashMap<&'static str, Vec<(&'static str, &'static str)>> =
-            HashMap::new();
-        // Iterate over the centralized map to extract help data only
-        for (func, (group, usage, _action)) in OPERATOR_DATA.entries() {
-            grouped_help.entry(group).or_default().push((*func, *usage));
-        }
-
-        let groups = vec![
-            "Binary", // Combined Arithmetic and Log/Atan2
-            "Unary",
-            "Rounding",
-            "Conversions",
-            "Combinatorics",
-            "Constants",
-            "Stack",
-            "Memory",
-            "Display",
-            "Meta",
-        ];
-
-        for group in groups {
-            if let Some(items) = grouped_help.get(group) {
-                println!("\n  ✨ {}:", group);
-                for (func, usage) in items {
-                    println!("    - {:<5} | {}", func, usage);
-                }
-            }
-        }
-    } else {
-        // Show help for a specific function
-        if let Some((group, usage, _action)) = OPERATOR_DATA.get(token) {
-            println!("\n--- Help for '{}' ---", token);
-            println!("  Type: {}", group);
-            println!("  Usage: {}", usage);
-        } else {
-            return Err("Function not found. Type 'help' for a full list.");
-        }
-    }
-
-    Ok(())
-}
 
 /// Helper to convert various Unicode digits and separators to ASCII digits and standard separators.
 fn unicode_to_ascii(c: char) -> char {
@@ -164,30 +115,6 @@ fn unicode_to_ascii(c: char) -> char {
 
         _ => c, // Leave all other characters unchanged
     }
-}
-
-/// Reads the last f64, casts it to i64, prints it in the given base.
-/// The stack is NOT modified.
-fn display_base(stack: &mut Vec<StackItem>, token: &str) -> Result<(), &'static str> {
-    // 1. Check stack and get number (read-only access)
-    let a = match stack.last() {
-        Some(StackItem::Number(val)) => *val,
-        _ => return Err("Base conversion requires one number on the stack"),
-    };
-
-    // 2. Cast to integer (truncates fractional part)
-    let int_val = a as i64;
-    let (prefix, base_str) = match token {
-        "hex" => ("0x", format!("{:X}", int_val)),
-        "oct" => ("0o", format!("{:o}", int_val)),
-        "bin" => ("0b", format!("{:b}", int_val)),
-        _ => return Err("Invalid base token"),
-    };
-
-    // 3. Print the result outside the stack
-    println!("\n{} Base: {}{}", token, prefix, base_str);
-
-    Ok(())
 }
 
 /// The core function to process a single input token.
@@ -226,50 +153,7 @@ pub fn process_token(
             OperatorAction::Unary(handler) => unary::calculate(stack, *handler),
             OperatorAction::Binary(handler) => binary::calculate(stack, *handler, token),
             OperatorAction::Special(name) => {
-                // Execute special commands which need custom state access
-                match *name {
-                    "factorial" => special::factorial(stack),
-                    "permutations" => special::permutations(stack),
-                    "combinations" => special::combinations(stack),
-                    "swap" => special::swap(stack),
-                    "clear" => {
-                        stack.clear();
-                        Ok(())
-                    }
-                    "answer" => {
-                        if let Some(val) = *last_answer {
-                            stack.push(StackItem::Number(val));
-                            Ok(())
-                        } else {
-                            Err("No previous answer available ('a' is empty)")
-                        }
-                    }
-                    // Store (sto)
-                    "store" => special::store(stack, storage),
-                    "recall" => special::recall(stack, storage),
-                    "display_base" => display_base(stack, token),
-                    "help" => {
-                        // Custom RPN help logic
-                        let target_item = stack.pop();
-                        match target_item {
-                            Some(StackItem::Key(key)) => {
-                                let func_name = key.trim_matches('"').to_lowercase();
-                                if OPERATOR_DATA.contains_key(func_name.as_str()) {
-                                    display_help(func_name.as_str())
-                                } else {
-                                    stack.push(StackItem::Key(key));
-                                    display_help("")
-                                }
-                            }
-                            Some(StackItem::Number(val)) => {
-                                stack.push(StackItem::Number(val));
-                                display_help("")
-                            }
-                            None => display_help(""),
-                        }
-                    }
-                    _ => Err("Internal operator error (Special command missing handler)"),
-                }
+                special::handle_special_operator(stack, token, *name, last_answer, storage)
             }
         }
     } else {
