@@ -11,6 +11,75 @@ enum StackItem {
     Key(String),
 }
 
+/// Calculates the factorial of n (n!).
+/// Panics if n is negative. Casts f64 to u64 for calculation.
+fn factorial(n: f64) -> f64 {
+    // We treat the input as a non-negative integer for factorial calculation.
+    let n_int = n.round() as u64; // Round to nearest integer and cast
+
+    // Calculate factorial iteratively to avoid deep recursion
+    (1..=n_int).map(|i| i as f64).product()
+}
+
+/// Calculates permutations P(n, k) = n! / (n - k)!.
+/// Pops two numbers (k, n), calculates P(n, k), and pushes the result.
+fn permutations(stack: &mut Vec<StackItem>) -> Result<(), &'static str> {
+    // RPN needs two operands: pop k (second-to-last) and n (last)
+    let k = match stack.pop() {
+        Some(StackItem::Number(val)) => val.round() as i64,
+        _ => return Err("P(n, k) requires two numbers (n, k) on the stack"),
+    };
+    let n = match stack.pop() {
+        Some(StackItem::Number(val)) => val.round() as i64,
+        _ => return Err("P(n, k) requires two numbers (n, k) on the stack"),
+    };
+
+    if n < 0 || k < 0 || k > n {
+        return Err("P(n, k) requires non-negative integers where n >= k");
+    }
+
+    // P(n, k) = n * (n-1) * ... * (n-k+1)
+    let result = (n - k + 1..=n).map(|i| i as f64).product();
+
+    stack.push(StackItem::Number(result));
+    Ok(())
+}
+
+/// Calculates combinations C(n, k) = n! / (k! * (n - k)!).
+/// Pops two numbers (k, n), calculates C(n, k), and pushes the result.
+fn combinations(stack: &mut Vec<StackItem>) -> Result<(), &'static str> {
+    // RPN needs two operands: pop k (second-to-last) and n (last)
+    let k = match stack.pop() {
+        Some(StackItem::Number(val)) => val.round() as i64,
+        _ => return Err("C(n, k) requires two numbers (n, k) on the stack"),
+    };
+    let n = match stack.pop() {
+        Some(StackItem::Number(val)) => val.round() as i64,
+        _ => return Err("C(n, k) requires two numbers (n, k) on the stack"),
+    };
+
+    if n < 0 || k < 0 || k > n {
+        return Err("C(n, k) requires non-negative integers where n >= k");
+    }
+
+    // C(n, k) = P(n, k) / k! -> use the formula C(n, k) = C(n, n-k) to minimize terms
+    // The implementation below uses the definition:
+    // C(n, k) = (n * (n-1) * ... * (n-k+1)) / k!
+
+    // Handle C(n, k) = C(n, n-k) for smaller k
+    let k_eff = std::cmp::min(k, n - k);
+
+    let numerator: f64 = (n - k_eff + 1..=n).map(|i| i as f64).product();
+    let denominator = factorial(k_eff as f64);
+
+    if denominator == 0.0 {
+        return Err("Division by zero in combinations calculation");
+    }
+
+    stack.push(StackItem::Number(numerator / denominator));
+    Ok(())
+}
+
 /// Helper to convert Persian (Eastern) and standard Arabic (Western) digits
 /// and separators to ASCII digits and standard separators.
 fn unicode_to_ascii(c: char) -> char {
@@ -223,6 +292,34 @@ fn process_token(
             }
         }
 
+        "C" => combinations(stack), // Combinations C(n, k)
+        "P" => permutations(stack), // Permutations P(n, k)
+        "!" => {
+            // Factorial n! (Custom error handling required)
+            // 1. Pop the number
+            let val = match stack.pop() {
+                Some(StackItem::Number(val)) => val,
+                _ => return Err("Factorial '!' requires one number on the stack"),
+            };
+
+            // 2. Calculate, handling potential error
+            match calculate_factorial(val) {
+                Ok(result) => {
+                    stack.push(StackItem::Number(result));
+                    Ok(())
+                }
+                Err(e) => {
+                    // Push the original value back on error for better user experience
+                    stack.push(StackItem::Number(val));
+                    Err(e)
+                }
+            }
+        }
+        "ceil" => unary_calculate(stack, f64::ceil), // Ceiling
+        "floor" => unary_calculate(stack, f64::floor), // Floor
+        "deg" => unary_calculate(stack, |x| x * 180.0 / consts::PI), // Radians to Degrees
+        "rad" => unary_calculate(stack, |x| x * consts::PI / 180.0), // Degrees to Radians
+
         _ => Err("Unrecognized token or operator"),
     }
 }
@@ -234,7 +331,7 @@ fn main() {
 
     println!("Welcome to kalk-rs (RPN Calculator). Type 'exit' to quit.");
     println!(
-        "Supported: +, -, *, /, **, %%, %, sqrt, sin, cos, tan, acos, asin, atan, atan2, exp, log, pi, e, <>, c, a, \"key\" sto, \"key\" rcl, hex, bin, oct."
+        "Supported: +, -, *, /, **, %%, %, sqrt, ceil, floor, sin, cos, tan, acos, asin, atan, atan2, exp, log, pi, e, <>, c, a, \"key\" sto, \"key\" rcl, hex, bin, oct, !, P, C, deg, rad."
     );
 
     loop {
@@ -295,6 +392,28 @@ fn main() {
             }
         }
     }
+}
+
+/// Calculates the factorial of n (n!).
+/// Returns an error if n is negative, non-integer, or too large (over 20, as 21! > f64::MAX).
+fn calculate_factorial(n: f64) -> Result<f64, &'static str> {
+    // 1. Check for negative input
+    if n < 0.0 {
+        return Err("Factorial '!' requires a non-negative number.");
+    }
+
+    // 2. Check for large input (21! is already too large for f64)
+    if n > 20.0 {
+        return Err("Factorial '!' is too large; max supported value is 20.");
+    }
+
+    // 3. Round to the nearest integer
+    let n_int = n.round() as u64;
+
+    // Calculate factorial iteratively
+    let result = (1..=n_int).map(|i| i as f64).product();
+
+    Ok(result)
 }
 
 /// Reads the last f64, casts it to i64, prints it in the given base.
@@ -686,5 +805,99 @@ mod tests {
         stack.push(StackItem::Number(1.0)); // x (b)
         assert!(process_token(&mut stack, "atan2", &mut last_answer, &mut storage).is_ok());
         assert!((get_number_at_top(&stack) - consts::FRAC_PI_4).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_factorial() {
+        let mut stack = Vec::new();
+        let mut storage = HashMap::new();
+        let mut last_answer = None;
+
+        // 5 ! = 120.0
+        stack.push(StackItem::Number(5.0));
+        assert!(process_token(&mut stack, "!", &mut last_answer, &mut storage).is_ok());
+        assert_eq!(get_number_at_top(&stack), 120.0);
+
+        // 0 ! = 1.0
+        stack.push(StackItem::Number(0.0));
+        assert!(process_token(&mut stack, "!", &mut last_answer, &mut storage).is_ok());
+        assert_eq!(get_number_at_top(&stack), 1.0);
+
+        // 4.9 ! = 120.0 (rounds to 5)
+        stack.push(StackItem::Number(4.9));
+        assert!(process_token(&mut stack, "!", &mut last_answer, &mut storage).is_ok());
+        assert_eq!(get_number_at_top(&stack), 120.0);
+    }
+
+    #[test]
+    fn test_permutations() {
+        let mut stack = Vec::new();
+        let mut storage = HashMap::new();
+        let mut last_answer = None;
+
+        // 5 3 P = P(5, 3) = 60.0 (5*4*3)
+        stack.push(StackItem::Number(5.0));
+        stack.push(StackItem::Number(3.0));
+        assert!(process_token(&mut stack, "P", &mut last_answer, &mut storage).is_ok());
+        assert_eq!(get_number_at_top(&stack), 60.0);
+
+        // 4 4 P = P(4, 4) = 24.0 (4!)
+        stack.push(StackItem::Number(4.0));
+        stack.push(StackItem::Number(4.0));
+        assert!(process_token(&mut stack, "P", &mut last_answer, &mut storage).is_ok());
+        assert_eq!(get_number_at_top(&stack), 24.0);
+    }
+
+    #[test]
+    fn test_combinations() {
+        let mut stack = Vec::new();
+        let mut storage = HashMap::new();
+        let mut last_answer = None;
+
+        // 5 3 C = C(5, 3) = 10.0 (5*4*3 / 3*2*1)
+        stack.push(StackItem::Number(5.0));
+        stack.push(StackItem::Number(3.0));
+        assert!(process_token(&mut stack, "C", &mut last_answer, &mut storage).is_ok());
+        assert_eq!(get_number_at_top(&stack), 10.0);
+
+        // 4 2 C = C(4, 2) = 6.0 (4*3 / 2*1)
+        stack.push(StackItem::Number(4.0));
+        stack.push(StackItem::Number(2.0));
+        assert!(process_token(&mut stack, "C", &mut last_answer, &mut storage).is_ok());
+        assert_eq!(get_number_at_top(&stack), 6.0);
+    }
+
+    #[test]
+    fn test_ceil_floor() {
+        let mut stack = Vec::new();
+        let mut storage = HashMap::new();
+        let mut last_answer = None;
+
+        // 1.1 ceil = 2.0
+        stack.push(StackItem::Number(1.1));
+        assert!(process_token(&mut stack, "ceil", &mut last_answer, &mut storage).is_ok());
+        assert_eq!(get_number_at_top(&stack), 2.0);
+
+        // -1.1 floor = -2.0
+        stack.push(StackItem::Number(-1.1));
+        assert!(process_token(&mut stack, "floor", &mut last_answer, &mut storage).is_ok());
+        assert_eq!(get_number_at_top(&stack), -2.0);
+    }
+
+    #[test]
+    fn test_angle_conversions() {
+        let mut stack = Vec::new();
+        let mut storage = HashMap::new();
+        let mut last_answer = None;
+
+        // pi rad deg = 180.0
+        stack.push(StackItem::Number(consts::PI));
+        assert!(process_token(&mut stack, "deg", &mut last_answer, &mut storage).is_ok());
+        assert!((get_number_at_top(&stack) - 180.0).abs() < 1e-10);
+
+        // 180 deg rad = pi
+        stack.push(StackItem::Number(180.0));
+        assert!(process_token(&mut stack, "rad", &mut last_answer, &mut storage).is_ok());
+        assert!((get_number_at_top(&stack) - consts::PI).abs() < 1e-10);
     }
 }
