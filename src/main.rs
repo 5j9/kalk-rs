@@ -47,7 +47,6 @@ fn unicode_to_ascii(c: char) -> char {
     }
 }
 
-// Use the simple, direct variable name 'val' for the mutable reference
 /// Applies an operation to the top f64 value on the stack, modifying it in place.
 fn unary_calculate(
     stack: &mut Vec<StackItem>,
@@ -152,6 +151,8 @@ fn process_token(
         "sin" => unary_calculate(stack, f64::sin),
         "cos" => unary_calculate(stack, f64::cos),
         "tan" => unary_calculate(stack, f64::tan),
+        "exp" => unary_calculate(stack, f64::exp),
+        "log" => calculate(stack, |a, b| a.log(b), "log"),
 
         "hex" | "bin" | "oct" => display_base(stack, token),
 
@@ -227,7 +228,7 @@ fn main() {
 
     println!("Welcome to kalk-rs (RPN Calculator). Type 'exit' to quit.");
     println!(
-        "Supported: +, -, *, /, **, %%, %, sqrt, sin, cos, tan, pi, e, <>, c, a, \"key\" sto, \"key\" rcl, hex, bin, oct."
+        "Supported: +, -, *, /, **, %%, %, sqrt, sin, cos, tan, exp, log, pi, e, <>, c, a, \"key\" sto, \"key\" rcl, hex, bin, oct."
     );
 
     loop {
@@ -326,6 +327,50 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_exp_function() {
+        let mut stack = Vec::new();
+        let mut storage = HashMap::new();
+        let mut last_answer = None;
+
+        // 1 exp = e^1 = e (approx 2.71828)
+        stack.push(StackItem::Number(1.0));
+        assert!(process_token(&mut stack, "exp", &mut last_answer, &mut storage).is_ok());
+        assert!((get_number_at_top(&stack) - consts::E).abs() < 1e-15);
+
+        // 0 exp = e^0 = 1.0
+        stack.push(StackItem::Number(0.0));
+        assert!(process_token(&mut stack, "exp", &mut last_answer, &mut storage).is_ok());
+        assert!((get_number_at_top(&stack) - 1.0).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_log_function() {
+        let mut stack = Vec::new();
+        let mut storage = HashMap::new();
+        let mut last_answer = None;
+
+        // 100 10 log = log_10(100) = 2.0
+        stack.push(StackItem::Number(100.0)); // x
+        stack.push(StackItem::Number(10.0)); // base
+        assert!(process_token(&mut stack, "log", &mut last_answer, &mut storage).is_ok());
+        assert!((get_number_at_top(&stack) - 2.0).abs() < 1e-15);
+
+        // 8 2 log = log_2(8) = 3.0
+        stack.push(StackItem::Number(8.0)); // x
+        stack.push(StackItem::Number(2.0)); // base
+        assert!(process_token(&mut stack, "log", &mut last_answer, &mut storage).is_ok());
+        assert!((get_number_at_top(&stack) - 3.0).abs() < 1e-15);
+
+        // e e log = log_e(e) = 1.0
+        stack.push(StackItem::Number(consts::E)); // x
+        stack.push(StackItem::Number(consts::E)); // base
+        assert!(process_token(&mut stack, "log", &mut last_answer, &mut storage).is_ok());
+        assert!((get_number_at_top(&stack) - 1.0).abs() < 1e-15);
+    }
+
+    // --- EXISTING TESTS (Ensuring no regressions) ---
+
     // Test: Basic Arithmetic
     #[test]
     fn test_basic_arithmetic() {
@@ -360,6 +405,7 @@ mod tests {
         assert!((get_number_at_top(&stack) - 3.14159).abs() < 0.0001);
     }
 
+    // Test Trigonometric Functions
     #[test]
     fn test_trig_functions() {
         let mut stack = Vec::new();
@@ -560,7 +606,7 @@ mod tests {
         assert!(process_token(&mut stack, "hex", &mut last_answer, &mut storage).is_ok());
 
         // Verify Stack Integrity: The original number should still be on the stack.
-        assert_eq!(stack.len(), 1); // Should now pass!
+        assert_eq!(stack.len(), 1);
         assert_eq!(get_number_at_top(&stack), 255.99);
 
         // --- Part 2: Negative Number ---
