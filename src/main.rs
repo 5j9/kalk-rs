@@ -47,20 +47,20 @@ fn unicode_to_ascii(c: char) -> char {
     }
 }
 
-/// Unary function for single-operand operations (e.g., sqrt).
-/// Pops one number, applies the function, and pushes the result.
-fn unary_calculate<F>(stack: &mut Vec<StackItem>, op: F) -> Result<(), &'static str>
-where
-    F: Fn(f64) -> f64,
-{
-    // Pop the last item and ensure it's a Number
-    let a = match stack.pop() {
+// Use the simple, direct variable name 'val' for the mutable reference
+/// Applies an operation to the top f64 value on the stack, modifying it in place.
+fn unary_calculate(
+    stack: &mut Vec<StackItem>,
+    operation: impl Fn(f64) -> f64,
+) -> Result<(), &'static str> {
+    let val = match stack.last_mut() {
         Some(StackItem::Number(val)) => val,
-        _ => return Err("Unary operation requires one number on the stack"),
+        _ => return Err("Unary operator requires one number on the stack"),
     };
 
-    // Perform calculation and push the result
-    stack.push(StackItem::Number(op(a)));
+    // Read the value (*val), perform the operation, and write back to the reference (*val)
+    *val = operation(*val);
+
     Ok(())
 }
 
@@ -149,6 +149,10 @@ fn process_token(
 
         // Unary Operators
         "sqrt" => unary_calculate(stack, f64::sqrt),
+        "sin" => unary_calculate(stack, f64::sin),
+        "cos" => unary_calculate(stack, f64::cos),
+        "tan" => unary_calculate(stack, f64::tan),
+
         "hex" | "bin" | "oct" => display_base(stack, token),
 
         // Constants
@@ -223,7 +227,7 @@ fn main() {
 
     println!("Welcome to kalk-rs (RPN Calculator). Type 'exit' to quit.");
     println!(
-        "Supported: +, -, *, /, **, %%, %, sqrt, pi, e, <>, c, a, \"key\" sto, \"key\" rcl, hex, bin, oct."
+        "Supported: +, -, *, /, **, %%, %, sqrt, sin, cos, tan, pi, e, <>, c, a, \"key\" sto, \"key\" rcl, hex, bin, oct."
     );
 
     loop {
@@ -286,12 +290,12 @@ fn main() {
     }
 }
 
-/// Pops the last f64, casts it to i64, prints it in the given base,
-/// and pushes the original f64 back onto the stack.
+/// Reads the last f64, casts it to i64, prints it in the given base.
+/// The stack is NOT modified.
 fn display_base(stack: &mut Vec<StackItem>, token: &str) -> Result<(), &'static str> {
-    // 1. Check stack and get number
-    let a = match stack.pop() {
-        Some(StackItem::Number(val)) => val,
+    // 1. Check stack and get number (read-only access)
+    let a = match stack.last() {
+        Some(StackItem::Number(val)) => *val,
         _ => return Err("Base conversion requires one number on the stack"),
     };
 
@@ -306,9 +310,6 @@ fn display_base(stack: &mut Vec<StackItem>, token: &str) -> Result<(), &'static 
 
     // 3. Print the result outside the stack
     println!("\n{} Base: {}{}", token, prefix, base_str);
-
-    // 4. Push the original number back onto the stack
-    stack.push(StackItem::Number(a));
 
     Ok(())
 }
@@ -357,6 +358,31 @@ mod tests {
         // pi
         assert!(process_token(&mut stack, "pi", &mut last_answer, &mut storage).is_ok());
         assert!((get_number_at_top(&stack) - 3.14159).abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_trig_functions() {
+        let mut stack = Vec::new();
+        let mut storage = HashMap::new();
+        let mut last_answer = None;
+
+        // pi sin should be very close to 0
+        stack.push(StackItem::Number(consts::PI));
+        assert!(process_token(&mut stack, "sin", &mut last_answer, &mut storage).is_ok());
+        // Use a small epsilon for float comparison (sin(pi) is mathematically 0)
+        assert!((get_number_at_top(&stack)).abs() < 1e-15);
+
+        // pi cos should be -1
+        stack.push(StackItem::Number(consts::PI));
+        assert!(process_token(&mut stack, "cos", &mut last_answer, &mut storage).is_ok());
+        assert!((get_number_at_top(&stack) - (-1.0)).abs() < 1e-15);
+
+        // pi 4 / tan should be 1
+        // Clear stack and push pi/4
+        stack.clear();
+        stack.push(StackItem::Number(consts::PI / 4.0));
+        assert!(process_token(&mut stack, "tan", &mut last_answer, &mut storage).is_ok());
+        assert!((get_number_at_top(&stack) - 1.0).abs() < 1e-15);
     }
 
     // Test: Swap and Clear
@@ -524,22 +550,28 @@ mod tests {
         let mut storage = HashMap::new();
         let mut last_answer = None;
 
-        // Push 255.99 (should truncate to 255)
-        stack.push(StackItem::Number(255.99));
+        stack.clear();
 
-        // Stack state before 'hex': [255.99]
+        // --- Part 1: Positive Number ---
+        // Push 255.99 (should truncate to 255 -> 0xFF)
+        stack.push(StackItem::Number(255.99)); // Stack size is now 1.
 
-        // Execute 'hex'. This will print "hex Base: 0xFF" and leave 255.99 on the stack.
+        // Execute 'hex'. Stack size should remain 1.
         assert!(process_token(&mut stack, "hex", &mut last_answer, &mut storage).is_ok());
 
-        // 1. Verify Stack Integrity: The original number should still be on the stack.
-        assert_eq!(stack.len(), 1);
+        // Verify Stack Integrity: The original number should still be on the stack.
+        assert_eq!(stack.len(), 1); // Should now pass!
         assert_eq!(get_number_at_top(&stack), 255.99);
 
-        // 2. Test Logic with a negative number (-42.1) -> Hex conversion should be 0xFFFFFFFFFFFFFFD6
-        stack.push(StackItem::Number(-42.1));
+        // --- Part 2: Negative Number ---
+        // Push -42.1
+        stack.push(StackItem::Number(-42.1)); // Stack size is now 2.
+
+        // Execute 'hex'. Stack size should remain 2.
         assert!(process_token(&mut stack, "hex", &mut last_answer, &mut storage).is_ok());
-        // Stack should now contain: [255.99, -42.1]
+
+        // Verify Stack Integrity again.
         assert_eq!(stack.len(), 2);
+        assert_eq!(get_number_at_top(&stack), -42.1);
     }
 }
