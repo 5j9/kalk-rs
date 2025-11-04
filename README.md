@@ -29,20 +29,22 @@ You need to have **Rust** and **Cargo** installed.
 
 Start the calculator, then enter numbers and operators separated by spaces. The calculator will display the stack state after each entry.
 
+```
 $ cargo run  
 Welcome to kalk-rs (RPN Calculator). Type 'exit' to quit.  
 Type 'help' for a list of all functions or '"func" help' for specific usage.  
-Stack: \[\]  
-\> 45 rad sin pi 2 /  
-Stack: \[0.7071067811865476, 1.5707963267948966\] \# sin(45 deg) and pi/2  
-\> 5 2 C  
-Stack: \[0.7071067811865476, 10\] \# 5 choose 2 is 10  
-\> "pi" help \# Get specific usage  
-\[help: pi | Push the value of pi\]  
-Stack: \[0.7071067811865476, 10\]  
-\> 100 120 %%  
-Stack: \[0.7071067811865476, 1.5707963267948966, 10, 20\] # Percent change from 100 to 120 is 20%
-\> 
+Stack: []  
+> 45 rad sin pi 2 /  
+Stack: [0.7071067811865476, 1.5707963267948966] # sin(45 deg) and pi/2  
+> 5 2 C  
+Stack: [0.7071067811865476, 10] # 5 choose 2 is 10  
+> "pi" help # Get specific usage  
+[help: pi | Push the value of pi]  
+Stack: [0.7071067811865476, 10]  
+> 100 120 %%  
+Stack: [0.7071067811865476, 1.5707963267948966, 10, 20] # Percent change from 100 to 120 is 20%
+> 
+```
 
 ## **Supported Commands**
 
