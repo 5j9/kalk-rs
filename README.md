@@ -41,7 +41,7 @@ Stack: \[0.7071067811865476, 10\] \# 5 choose 2 is 10
 \[help: pi | Push the value of pi\]  
 Stack: \[0.7071067811865476, 10\]  
 \> 100 120 %%  
-Stack: \[0.7071067811865476, 20\] \# Percent change from 100 to 120 is 20%  
+Stack: \[0.7071067811865476, 1.5707963267948966, 10, 20\] # Percent change from 100 to 120 is 20%
 \> 
 
 ## **Supported Commands**
