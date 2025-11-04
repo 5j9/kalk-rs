@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::f64::consts;
 use std::io::{self, Write};
+use thousands::Separable;
 
 /// Represents an item that can be placed on the RPN stack.
 /// It can be a floating-point number or a string key for storage.
@@ -207,8 +208,7 @@ fn main() {
             .iter()
             .map(|item| {
                 match item {
-                    // Display numbers without the 'Number()' wrapper
-                    StackItem::Number(val) => format!("{}", val),
+                    StackItem::Number(val) => val.separate_with_commas(),
                     // Display keys surrounded by their quotes
                     StackItem::Key(key) => format!("\"{}\"", key),
                 }
