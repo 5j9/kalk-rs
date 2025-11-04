@@ -151,6 +151,12 @@ fn process_token(
         "sin" => unary_calculate(stack, f64::sin),
         "cos" => unary_calculate(stack, f64::cos),
         "tan" => unary_calculate(stack, f64::tan),
+
+        "acos" => unary_calculate(stack, f64::acos),
+        "asin" => unary_calculate(stack, f64::asin),
+        "atan" => unary_calculate(stack, f64::atan),
+        "atan2" => calculate(stack, |a, b| a.atan2(b), "atan2"),
+
         "exp" => unary_calculate(stack, f64::exp),
         "log" => calculate(stack, |a, b| a.log(b), "log"),
 
@@ -228,7 +234,7 @@ fn main() {
 
     println!("Welcome to kalk-rs (RPN Calculator). Type 'exit' to quit.");
     println!(
-        "Supported: +, -, *, /, **, %%, %, sqrt, sin, cos, tan, exp, log, pi, e, <>, c, a, \"key\" sto, \"key\" rcl, hex, bin, oct."
+        "Supported: +, -, *, /, **, %%, %, sqrt, sin, cos, tan, acos, asin, atan, atan2, exp, log, pi, e, <>, c, a, \"key\" sto, \"key\" rcl, hex, bin, oct."
     );
 
     loop {
@@ -619,5 +625,66 @@ mod tests {
         // Verify Stack Integrity again.
         assert_eq!(stack.len(), 2);
         assert_eq!(get_number_at_top(&stack), -42.1);
+    }
+
+    // --- Trigonometric and Inverse Trigonometric Tests ---
+
+    #[test]
+    fn test_acos_function() {
+        let mut stack = Vec::new();
+        let mut storage = HashMap::new();
+        let mut last_answer = None;
+
+        // 1 acos = acos(1) = 0
+        stack.push(StackItem::Number(1.0));
+        assert!(process_token(&mut stack, "acos", &mut last_answer, &mut storage).is_ok());
+        assert!((get_number_at_top(&stack)).abs() < 1e-15); // Result is 0.0
+
+        // 0 acos = acos(0) = pi/2
+        stack.push(StackItem::Number(0.0));
+        assert!(process_token(&mut stack, "acos", &mut last_answer, &mut storage).is_ok());
+        assert!((get_number_at_top(&stack) - consts::FRAC_PI_2).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_asin_function() {
+        let mut stack = Vec::new();
+        let mut storage = HashMap::new();
+        let mut last_answer = None;
+
+        // 1 asin = asin(1) = pi/2
+        stack.push(StackItem::Number(1.0));
+        assert!(process_token(&mut stack, "asin", &mut last_answer, &mut storage).is_ok());
+        assert!((get_number_at_top(&stack) - consts::FRAC_PI_2).abs() < 1e-15);
+
+        // -1 asin = asin(-1) = -pi/2
+        stack.push(StackItem::Number(-1.0));
+        assert!(process_token(&mut stack, "asin", &mut last_answer, &mut storage).is_ok());
+        assert!((get_number_at_top(&stack) - (-consts::FRAC_PI_2)).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_atan_function() {
+        let mut stack = Vec::new();
+        let mut storage = HashMap::new();
+        let mut last_answer = None;
+
+        // 1 atan = atan(1) = pi/4
+        stack.push(StackItem::Number(1.0));
+        assert!(process_token(&mut stack, "atan", &mut last_answer, &mut storage).is_ok());
+        assert!((get_number_at_top(&stack) - consts::FRAC_PI_4).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_atan2_function() {
+        let mut stack = Vec::new();
+        let mut storage = HashMap::new();
+        let mut last_answer = None;
+
+        // y=1, x=1: 1 1 atan2 = pi/4 (45 degrees)
+        stack.push(StackItem::Number(1.0)); // y (a)
+        stack.push(StackItem::Number(1.0)); // x (b)
+        assert!(process_token(&mut stack, "atan2", &mut last_answer, &mut storage).is_ok());
+        assert!((get_number_at_top(&stack) - consts::FRAC_PI_4).abs() < 1e-15);
     }
 }
