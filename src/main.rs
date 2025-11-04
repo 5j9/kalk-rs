@@ -202,7 +202,6 @@ fn main() {
     println!("Supported: +, -, *, /, **, sqrt, pi, e, <>, c, a, \"key\" sto, \"key\" rcl.");
 
     loop {
-        // --- MODIFIED DISPLAY LOGIC ---
         // Manually format the stack for a cleaner look.
         let display_content: Vec<String> = stack
             .iter()
@@ -221,7 +220,6 @@ fn main() {
 
         // Display the current stack state using the new display_string
         print!("Stack: {}\n> ", display_string);
-        // --- END MODIFIED DISPLAY LOGIC ---
 
         io::stdout().flush().unwrap();
 
@@ -232,7 +230,8 @@ fn main() {
             continue;
         }
 
-        let input = input.trim();
+        // Check for comment marker (#) and strip the rest of the line
+        let input = input.splitn(2, '#').next().unwrap_or("").trim();
 
         if input.eq_ignore_ascii_case("exit") {
             break;
@@ -383,5 +382,32 @@ mod tests {
         // Parse Persian digits with commas (should fail if comma isn't stripped, but works here)
         assert!(process_token(&mut stack, "۱,۲۳۴", &mut last_answer, &mut storage).is_ok());
         assert_eq!(get_number_at_top(&stack), 1234.0);
+    }
+
+    #[test]
+    fn test_input_comment_stripping() {
+        let input_with_comment = "10 5 + # This is a comment about the sum";
+
+        // The key logic from main() implemented here:
+        let cleaned_input = input_with_comment
+            .trim()
+            .splitn(2, '#')
+            .next()
+            .unwrap_or("")
+            .trim();
+
+        // The tokens should only contain the calculator input
+        assert_eq!(cleaned_input, "10 5 +");
+
+        // Test a line that is only a comment
+        let only_comment = "# Ignore this line";
+        let cleaned_only_comment = only_comment
+            .trim()
+            .splitn(2, '#')
+            .next()
+            .unwrap_or("")
+            .trim();
+
+        assert_eq!(cleaned_only_comment, "");
     }
 }
