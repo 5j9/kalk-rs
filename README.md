@@ -1,5 +1,3 @@
-✨ **`README.md`**
-
 # 🧮 kalk-rs: A Console RPN Calculator
 
 `kalk-rs` is a simple, command-line Reverse Polish Notation (RPN) calculator implemented in Rust. It features basic arithmetic, constants, stack manipulation, memory storage, and unique support for non-ASCII numeric input.
