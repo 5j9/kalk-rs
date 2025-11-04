@@ -202,6 +202,7 @@ fn main() {
     println!("Supported: +, -, *, /, **, sqrt, pi, e, <>, c, a, \"key\" sto, \"key\" rcl.");
 
     loop {
+        // --- MODIFIED DISPLAY LOGIC ---
         // Manually format the stack for a cleaner look.
         let display_content: Vec<String> = stack
             .iter()
@@ -220,6 +221,7 @@ fn main() {
 
         // Display the current stack state using the new display_string
         print!("Stack: {}\n> ", display_string);
+        // --- END MODIFIED DISPLAY LOGIC ---
 
         io::stdout().flush().unwrap();
 
@@ -258,5 +260,128 @@ fn main() {
                 last_answer = Some(*result);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A helper function to easily get the number value from the stack
+    fn get_number_at_top(stack: &Vec<StackItem>) -> f64 {
+        match stack.last() {
+            Some(StackItem::Number(val)) => *val,
+            _ => panic!("Stack top is not a number or stack is empty"),
+        }
+    }
+
+    // Test: Basic Arithmetic
+    #[test]
+    fn test_basic_arithmetic() {
+        let mut stack = vec![StackItem::Number(5.0), StackItem::Number(3.0)];
+        let mut storage = HashMap::new();
+        let mut last_answer = None;
+
+        // 5 3 + = 8
+        assert!(process_token(&mut stack, "+", &mut last_answer, &mut storage).is_ok());
+        assert_eq!(get_number_at_top(&stack), 8.0);
+
+        // 8 4 * = 32
+        stack.push(StackItem::Number(4.0));
+        assert!(process_token(&mut stack, "*", &mut last_answer, &mut storage).is_ok());
+        assert_eq!(get_number_at_top(&stack), 32.0);
+    }
+
+    // Test: Unary and Constants
+    #[test]
+    fn test_unary_and_constants() {
+        let mut stack = Vec::new();
+        let mut storage = HashMap::new();
+        let mut last_answer = None;
+
+        // sqrt(9) = 3
+        stack.push(StackItem::Number(9.0));
+        assert!(process_token(&mut stack, "sqrt", &mut last_answer, &mut storage).is_ok());
+        assert_eq!(get_number_at_top(&stack), 3.0);
+
+        // pi
+        assert!(process_token(&mut stack, "pi", &mut last_answer, &mut storage).is_ok());
+        assert!((get_number_at_top(&stack) - 3.14159).abs() < 0.0001);
+    }
+
+    // Test: Swap and Clear
+    #[test]
+    fn test_stack_manipulation() {
+        let mut stack = vec![
+            StackItem::Number(1.0),
+            StackItem::Number(2.0),
+            StackItem::Number(3.0),
+        ];
+        let mut storage = HashMap::new();
+        let mut last_answer = None;
+
+        // 1 2 3 <> -> 1 3 2
+        assert!(process_token(&mut stack, "<>", &mut last_answer, &mut storage).is_ok());
+        assert_eq!(stack.len(), 3);
+
+        let swapped_top = match &stack[2] {
+            StackItem::Number(v) => *v,
+            _ => 0.0,
+        };
+        let swapped_middle = match &stack[1] {
+            StackItem::Number(v) => *v,
+            _ => 0.0,
+        };
+
+        assert_eq!(swapped_top, 2.0);
+        assert_eq!(swapped_middle, 3.0);
+
+        // Clear stack
+        assert!(process_token(&mut stack, "c", &mut last_answer, &mut storage).is_ok());
+        assert!(stack.is_empty());
+    }
+
+    // Test: Store and Recall with Keys
+    #[test]
+    fn test_storage_rcl() {
+        let mut stack = Vec::new();
+        let mut storage = HashMap::new();
+        let mut last_answer = None;
+
+        // 100 "rate" sto
+        stack.push(StackItem::Number(100.0));
+        assert!(process_token(&mut stack, "\"rate\"", &mut last_answer, &mut storage).is_ok());
+        assert!(process_token(&mut stack, "sto", &mut last_answer, &mut storage).is_ok());
+
+        // Check storage map
+        assert_eq!(*storage.get("rate").unwrap(), 100.0);
+        assert!(stack.is_empty());
+
+        // "rate" rcl
+        assert!(process_token(&mut stack, "\"rate\"", &mut last_answer, &mut storage).is_ok());
+        assert!(process_token(&mut stack, "rcl", &mut last_answer, &mut storage).is_ok());
+
+        // Check stack after recall
+        assert_eq!(get_number_at_top(&stack), 100.0);
+    }
+
+    // Test: Input Parsing (Persian/Commas)
+    #[test]
+    fn test_input_parsing() {
+        let mut stack = Vec::new();
+        let mut storage = HashMap::new();
+        let mut last_answer = None;
+
+        // Parse with commas
+        assert!(process_token(&mut stack, "1,234.5", &mut last_answer, &mut storage).is_ok());
+        assert_eq!(get_number_at_top(&stack), 1234.5);
+
+        // Parse Persian digits
+        assert!(process_token(&mut stack, "۱۲۳", &mut last_answer, &mut storage).is_ok());
+        assert_eq!(get_number_at_top(&stack), 123.0);
+
+        // Parse Persian digits with commas (should fail if comma isn't stripped, but works here)
+        assert!(process_token(&mut stack, "۱,۲۳۴", &mut last_answer, &mut storage).is_ok());
+        assert_eq!(get_number_at_top(&stack), 1234.0);
     }
 }
