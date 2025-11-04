@@ -166,54 +166,6 @@ fn unicode_to_ascii(c: char) -> char {
     }
 }
 
-/// Applies an operation to the top f64 value on the stack, modifying it in place.
-fn unary_calculate(
-    stack: &mut Vec<StackItem>,
-    operation: UnaryHandler,
-) -> Result<(), &'static str> {
-    let val = match stack.last_mut() {
-        Some(StackItem::Number(val)) => val,
-        _ => return Err("Unary operator requires one number on the stack"),
-    };
-
-    // Read the value, perform the operation, and write back to the reference
-    *val = operation(*val);
-
-    Ok(())
-}
-
-/// Binary function for two-operand operations (e.g., +, -, *, /).
-/// Pops two numbers (a and b), applies the function (a op b), and pushes the result.
-fn calculate(
-    stack: &mut Vec<StackItem>,
-    op: BinaryHandler,
-    _op_symbol: &str,
-) -> Result<(), &'static str> {
-    // RPN needs two operands: pop the second-to-last (b) and last (a)
-    let b = match stack.pop() {
-        Some(StackItem::Number(val)) => val,
-        _ => {
-            return Err(
-                "Binary operation requires two numbers on the stack (missing second operand)",
-            );
-        }
-    };
-    let a = match stack.pop() {
-        Some(StackItem::Number(val)) => val,
-        _ => {
-            // Push the second operand back before erroring
-            stack.push(StackItem::Number(b));
-            return Err(
-                "Binary operation requires two numbers on the stack (missing first operand)",
-            );
-        }
-    };
-
-    // Perform the calculation and push the result
-    stack.push(StackItem::Number(op(a, b)));
-    Ok(())
-}
-
 /// Reads the last f64, casts it to i64, prints it in the given base.
 /// The stack is NOT modified.
 fn display_base(stack: &mut Vec<StackItem>, token: &str) -> Result<(), &'static str> {
@@ -271,8 +223,8 @@ pub fn process_token(
                 stack.push(StackItem::Number(*val));
                 Ok(())
             }
-            OperatorAction::Unary(handler) => unary_calculate(stack, *handler),
-            OperatorAction::Binary(handler) => calculate(stack, *handler, token),
+            OperatorAction::Unary(handler) => unary::calculate(stack, *handler),
+            OperatorAction::Binary(handler) => binary::calculate(stack, *handler, token),
             OperatorAction::Special(name) => {
                 // Execute special commands which need custom state access
                 match *name {
