@@ -74,6 +74,7 @@ const OPERATOR_DATA: Map<&'static str, (&'static str, &'static str, OperatorActi
     "<>" => ("Stack", "a b <> | Swap the top two items", OperatorAction::Special("swap")),
     "c" => ("Stack", "c | Clear the stack", OperatorAction::Special("clear")),
     "a" => ("Stack", "a | Recall last successful answer", OperatorAction::Special("answer")),
+    "s" => ("Stack", "s | Print the current stack", OperatorAction::Special("print_stack")),
     "sto" => ("Memory", "value \"key\" sto | Store value to key", OperatorAction::Special("store")),
     "rcl" => ("Memory", "\"key\" rcl | Recall value from key", OperatorAction::Special("recall")),
     "hex" => ("Display", "a hex | Display a in hexadecimal (i64 cast)", OperatorAction::Special("display_base")),
@@ -160,7 +161,6 @@ pub fn process_token(
         Err("Unrecognized token or operator")
     }
 }
-
 pub fn main_app_loop() {
     let mut stack: Vec<StackItem> = Vec::new();
     let mut last_answer: Option<f64> = None;
@@ -170,52 +170,40 @@ pub fn main_app_loop() {
     println!("Type 'help' for a list of all functions or '\"func\" help' for specific usage.");
 
     loop {
-        // Manually format the stack for a cleaner look.
-        let display_content: Vec<String> = stack
-            .iter()
-            .map(|item| {
-                match item {
-                    StackItem::Number(val) => val.separate_with_commas(),
-                    // Display keys surrounded by their quotes
-                    StackItem::Key(key) => format!("\"{}\"", key),
-                }
-            })
-            .collect();
+        // Display only the last answer (if it exists) as a subtle hint
+        if let Some(ans) = last_answer {
+            // Using a different color or format for the 'Ans' line
+            println!("\x1B[2m{}\x1B[0m", ans.separate_with_commas());
+        }
 
-        // Join the items and wrap in square brackets
-        let display_string = format!("[{}]", display_content.join(", "));
-
-        // Display the current stack state using the new display_string
-        print!("Stack: {}\n> ", display_string);
-
+        print!("> ");
         io::stdout().flush().unwrap();
 
-        // Read user input
         let mut input = String::new();
         if let Err(e) = io::stdin().read_line(&mut input) {
             eprintln!("I/O Error: {}", e);
             continue;
         }
 
-        // Check for comment marker (#) and strip the rest of the line
         let input = input.splitn(2, '#').next().unwrap_or("").trim();
-
         if input.eq_ignore_ascii_case("exit") {
             break;
         }
+        if input.is_empty() {
+            continue;
+        }
 
-        // Process tokens
-        let mut tokens = input.split_whitespace();
         let mut success = true;
+        let tokens = input.split_whitespace();
 
-        while let Some(token) = tokens.next() {
+        for token in tokens {
             if let Err(e) = process_token(&mut stack, token, &mut last_answer, &mut storage) {
                 eprintln!("Error: {}", e);
-                // On error, clear the current input line's processing
                 success = false;
                 break;
             }
         }
+
         // Update Last Answer ONLY if the input line processed successfully
         if success {
             if let Some(StackItem::Number(result)) = stack.last() {

@@ -1,5 +1,6 @@
 use super::{OPERATOR_DATA, StackItem};
 use std::collections::HashMap;
+use thousands::Separable;
 
 pub fn handle_special_operator(
     stack: &mut Vec<StackItem>,
@@ -12,6 +13,22 @@ pub fn handle_special_operator(
         "factorial" => crate::special::factorial(stack),
         "permutations" => crate::special::permutations(stack),
         "combinations" => crate::special::combinations(stack),
+        "print_stack" => {
+            if stack.is_empty() {
+                println!("[Empty Stack]");
+            } else {
+                println!("--- Stack ---");
+                for (idx, item) in stack.iter().enumerate() {
+                    let val_str = match item {
+                        StackItem::Number(n) => n.separate_with_commas(),
+                        StackItem::Key(k) => format!("\"{}\"", k),
+                    };
+                    println!("{:2}: {}", idx + 1, val_str);
+                }
+                println!("-------------");
+            }
+            Ok(())
+        }
         "swap" => crate::special::swap(stack),
         "clear" => {
             stack.clear();
