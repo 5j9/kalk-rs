@@ -172,8 +172,7 @@ pub fn main_app_loop() {
     loop {
         // Display only the last answer (if it exists) as a subtle hint
         if let Some(ans) = last_answer {
-            // Using a different color or format for the 'Ans' line
-            println!("\x1B[2m{}\x1B[0m", ans.separate_with_commas());
+            println!("{}", ans.separate_with_commas());
         }
 
         print!("> ");
